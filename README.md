@@ -14,7 +14,7 @@ Omnilingual ASR is an open-source speech recognition system supporting over 1,60
 
 <div align="center">
   <img src="./result_table.png" alt="Performance results table" width="100%" />
-  <p><i>Our 7B-LLM-ASR system achieves state-of-the-art performance across 1,600+ languages, with character error rates (CER) below 10 for 78% of those languages.</i></p>
+  <p><i>Our 7B-LLM-ASR system achieves state-of-the-art performance across 1,600+ languages, with character error rates (CER) below 10 for 78% of those languages. Per language CER results, plus training hours can be found in <a href="./per_language_results_table_7B_llm_asr.csv">this csv</a></i></p>
 </div>
 
 
