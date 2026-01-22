@@ -50,6 +50,16 @@ dependencies = [
     "fire",
     "retrying",
   ]
+  diarization = [
+    "pyannote.audio>=3.1.1",
+    "pyannote.core>=5.0.0",
+  ]
+  web = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+    "python-multipart>=0.0.9",
+    "sse-starlette>=2.0.0",
+  ]
   dev = [
     "black~=25.1",
     "flake8~=7.1",

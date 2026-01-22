@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Wav2ELAN</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&family=Source+Sans+3:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <div class="grain"></div>
+
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="sidebar-brand">
+          <div class="brand-mark">W</div>
+          <div>
+            <h1>Wav2ELAN</h1>
+            <p>Transcript workspace</p>
+          </div>
+        </div>
+
+        <div class="sidebar-upload">
+          <div class="sidebar-upload-actions">
+            <label class="btn-primary" for="file-input">Upload audio</label>
+            <label class="btn-secondary" for="folder-input">Upload folder</label>
+          </div>
+          <input id="file-input" type="file" accept=".wav,.mp3,.flac,.ogg,.m4a,.zip" multiple />
+          <input id="folder-input" type="file" webkitdirectory directory multiple />
+          <p class="sidebar-hint">Supports WAV, MP3, FLAC, OGG, M4A, ZIP</p>
+          <div class="sidebar-file-list" id="file-list"></div>
+        </div>
+
+        <div class="sidebar-section">
+          <div class="sidebar-section-title">Library</div>
+          <div id="history-list" class="history-list"></div>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="workspace-header">
+          <div>
+            <h2>Transcript Dashboard</h2>
+            <p>Click a word to play and edit text or timestamps.</p>
+          </div>
+          <button class="btn-secondary" id="download-eaf">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Export ELAN
+          </button>
+        </header>
+
+        <section class="drop-zone" id="upload-zone">
+          <div class="drop-inner">
+            <div class="drop-icon">
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M12 15V3m0 0l-4 4m4-4l4 4" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M2 17l.621 2.485A2 2 0 004.561 21h14.878a2 2 0 001.94-1.515L22 17" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <div>
+              <h3>Drop audio, a folder, or a zip</h3>
+              <p>Supports WAV, MP3, FLAC, OGG, M4A and ZIP bundles.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="progress-section hidden" id="progress-section">
+          <div class="progress-steps">
+            <div class="progress-step" data-step="0">
+              <div class="step-indicator">
+                <svg class="step-check hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                  <path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span class="step-number">1</span>
+              </div>
+              <span class="step-label">Loading</span>
+            </div>
+            <div class="progress-connector"></div>
+            <div class="progress-step" data-step="1">
+              <div class="step-indicator">
+                <svg class="step-check hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                  <path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span class="step-number">2</span>
+              </div>
+              <span class="step-label">Diarizing</span>
+            </div>
+            <div class="progress-connector"></div>
+            <div class="progress-step" data-step="2">
+              <div class="step-indicator">
+                <svg class="step-check hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                  <path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span class="step-number">3</span>
+              </div>
+              <span class="step-label">Transcribing</span>
+            </div>
+            <div class="progress-connector"></div>
+            <div class="progress-step" data-step="3">
+              <div class="step-indicator">
+                <svg class="step-check hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                  <path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span class="step-number">4</span>
+              </div>
+              <span class="step-label">Aligning</span>
+            </div>
+          </div>
+          <div class="progress-bar-track">
+            <div class="progress-bar-fill" id="progress-bar-fill"></div>
+          </div>
+          <div class="progress-meta" id="progress-meta"></div>
+        </section>
+
+        <section class="status-bar" id="status">
+          <div class="status-pulse"></div>
+          <span class="status-text"></span>
+        </section>
+
+        <section class="transcript" id="transcript"></section>
+      </main>
+    </div>
+
+    <footer class="player-bar" id="player-bar">
+      <div class="player-inner">
+        <button class="player-btn" id="play-pause">
+          <svg class="icon-play" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M8 5v14l11-7z"/>
+          </svg>
+          <svg class="icon-pause hidden" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="6" y="4" width="4" height="16"/>
+            <rect x="14" y="4" width="4" height="16"/>
+          </svg>
+        </button>
+        <div class="player-time" id="current-time">0:00</div>
+        <div class="player-progress">
+          <div class="progress-bg">
+            <div class="progress-fill" id="progress-fill"></div>
+          </div>
+          <input type="range" class="progress-input" id="progress-input" min="0" max="100" value="0" />
+        </div>
+        <div class="player-time" id="duration">0:00</div>
+        <audio id="audio"></audio>
+      </div>
+    </footer>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

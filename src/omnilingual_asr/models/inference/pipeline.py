@@ -75,6 +75,13 @@ class ContextExample:
     text: str
 
 
+@dataclass(frozen=True)
+class WordTimestamp:
+    word: str
+    start: float
+    end: float
+
+
 def resample_to_16khz(
     audio_data: Dict[str, Any], target_sample_rate: int = 16000
 ) -> Dict[str, Any]:
@@ -329,6 +336,225 @@ class ASRInferencePipeline:
             decoded_ids = seq[mask]
             transcriptions.append(self.token_decoder(decoded_ids))
         return transcriptions
+
+    def _apply_model_wav2vec2asr_with_word_timestamps(
+        self, batch: Seq2SeqBatch
+    ) -> List[List[WordTimestamp]]:
+        batch_layout = BatchLayout(
+            batch.source_seqs.shape,
+            seq_lens=batch.source_seq_lens,
+            device=batch.source_seqs.device,
+        )
+
+        logits, bl_out = self.model(batch.source_seqs, batch_layout)
+        pred_ids = torch.argmax(logits, dim=-1)
+        pad_idx = getattr(self.tokenizer.vocab_info, "pad_idx", 0)
+
+        results: List[List[WordTimestamp]] = []
+        for i in range(pred_ids.shape[0]):
+            seq_len = int(bl_out.seq_lens[i])
+            if seq_len == 0:
+                results.append([])
+                continue
+            seq = pred_ids[i][:seq_len]
+            audio_len_samples = float(batch.source_seq_lens[i])
+            frame_dur = (audio_len_samples / 16000.0) / float(seq_len)
+
+            tokens: List[tuple[int, float, float, str]] = []
+            prev_token: int | None = None
+            run_start: int | None = None
+
+            for t_idx, token_id in enumerate(seq.tolist()):
+                if token_id == pad_idx:
+                    if run_start is not None and prev_token is not None:
+                        start = run_start * frame_dur
+                        end = (t_idx) * frame_dur
+                        token_text = self.token_decoder(
+                            torch.tensor([prev_token], device=seq.device)
+                        )
+                        tokens.append((prev_token, start, end, token_text))
+                    run_start = None
+                    prev_token = None
+                    continue
+                if token_id == prev_token:
+                    continue
+                if run_start is not None and prev_token is not None:
+                    start = run_start * frame_dur
+                    end = (t_idx) * frame_dur
+                    token_text = self.token_decoder(
+                        torch.tensor([prev_token], device=seq.device)
+                    )
+                    tokens.append((prev_token, start, end, token_text))
+                prev_token = token_id
+                run_start = t_idx
+
+            if run_start is not None and prev_token is not None:
+                start = run_start * frame_dur
+                end = seq_len * frame_dur
+                token_text = self.token_decoder(
+                    torch.tensor([prev_token], device=seq.device)
+                )
+                tokens.append((prev_token, start, end, token_text))
+
+            tokens = [(tid, s, e, txt) for tid, s, e, txt in tokens if txt]
+            has_space_boundary = any(txt.startswith(" ") for _, _, _, txt in tokens)
+
+            words: List[WordTimestamp] = []
+            if has_space_boundary:
+                current_word = ""
+                word_start = 0.0
+                word_end = 0.0
+                for _, start, end, token_text in tokens:
+                    if token_text.startswith(" "):
+                        if current_word:
+                            words.append(
+                                WordTimestamp(
+                                    word=current_word,
+                                    start=word_start,
+                                    end=word_end,
+                                )
+                            )
+                        current_word = token_text.lstrip()
+                        word_start = start
+                        word_end = end
+                    else:
+                        if not current_word:
+                            current_word = token_text
+                            word_start = start
+                        else:
+                            current_word += token_text
+                        word_end = end
+
+                if current_word:
+                    words.append(
+                        WordTimestamp(
+                            word=current_word, start=word_start, end=word_end
+                        )
+                    )
+            else:
+                for _, start, end, token_text in tokens:
+                    cleaned = token_text.strip()
+                    if not cleaned:
+                        continue
+                    words.append(
+                        WordTimestamp(word=cleaned, start=start, end=end)
+                    )
+
+            results.append(words)
+
+        return results
+
+    def _apply_model_wav2vec2asr_with_text_and_word_timestamps(
+        self, batch: Seq2SeqBatch
+    ) -> List[tuple[str, List[WordTimestamp]]]:
+        batch_layout = BatchLayout(
+            batch.source_seqs.shape,
+            seq_lens=batch.source_seq_lens,
+            device=batch.source_seqs.device,
+        )
+
+        logits, bl_out = self.model(batch.source_seqs, batch_layout)
+        pred_ids = torch.argmax(logits, dim=-1)
+        pad_idx = getattr(self.tokenizer.vocab_info, "pad_idx", 0)
+
+        results: List[tuple[str, List[WordTimestamp]]] = []
+        for i in range(pred_ids.shape[0]):
+            seq_len = int(bl_out.seq_lens[i])
+            if seq_len == 0:
+                results.append(("", []))
+                continue
+            seq = pred_ids[i][:seq_len]
+            audio_len_samples = float(batch.source_seq_lens[i])
+            frame_dur = (audio_len_samples / 16000.0) / float(seq_len)
+
+            # CTC decode for full transcript
+            mask = torch.ones(seq.shape[0], dtype=torch.bool, device=seq.device)
+            if seq.shape[0] > 1:
+                mask[1:] = seq[1:] != seq[:-1]
+            decoded_ids = seq[mask]
+            transcript = self.token_decoder(decoded_ids)
+
+            tokens: List[tuple[int, float, float, str]] = []
+            prev_token: int | None = None
+            run_start: int | None = None
+
+            for t_idx, token_id in enumerate(seq.tolist()):
+                if token_id == pad_idx:
+                    if run_start is not None and prev_token is not None:
+                        start = run_start * frame_dur
+                        end = (t_idx) * frame_dur
+                        token_text = self.token_decoder(
+                            torch.tensor([prev_token], device=seq.device)
+                        )
+                        tokens.append((prev_token, start, end, token_text))
+                    run_start = None
+                    prev_token = None
+                    continue
+                if token_id == prev_token:
+                    continue
+                if run_start is not None and prev_token is not None:
+                    start = run_start * frame_dur
+                    end = (t_idx) * frame_dur
+                    token_text = self.token_decoder(
+                        torch.tensor([prev_token], device=seq.device)
+                    )
+                    tokens.append((prev_token, start, end, token_text))
+                prev_token = token_id
+                run_start = t_idx
+
+            if run_start is not None and prev_token is not None:
+                start = run_start * frame_dur
+                end = seq_len * frame_dur
+                token_text = self.token_decoder(
+                    torch.tensor([prev_token], device=seq.device)
+                )
+                tokens.append((prev_token, start, end, token_text))
+
+            tokens = [(tid, s, e, txt) for tid, s, e, txt in tokens if txt]
+            has_space_boundary = any(txt.startswith(" ") for _, _, _, txt in tokens)
+
+            words: List[WordTimestamp] = []
+            if has_space_boundary:
+                current_word = ""
+                word_start = 0.0
+                word_end = 0.0
+                for _, start, end, token_text in tokens:
+                    if token_text.startswith(" "):
+                        if current_word:
+                            words.append(
+                                WordTimestamp(
+                                    word=current_word,
+                                    start=word_start,
+                                    end=word_end,
+                                )
+                            )
+                        current_word = token_text.lstrip()
+                        word_start = start
+                        word_end = end
+                    else:
+                        if not current_word:
+                            current_word = token_text
+                            word_start = start
+                        else:
+                            current_word += token_text
+                        word_end = end
+
+                if current_word:
+                    words.append(
+                        WordTimestamp(
+                            word=current_word, start=word_start, end=word_end
+                        )
+                    )
+            else:
+                for _, start, end, token_text in tokens:
+                    cleaned = token_text.strip()
+                    if not cleaned:
+                        continue
+                    words.append(WordTimestamp(word=cleaned, start=start, end=end))
+
+            results.append((transcript, words))
+
+        return results
 
     def _apply_model_wav2vec2llama(self, batch: Seq2SeqBatch) -> List[str]:
         assert self.beam_search_generator is not None
@@ -626,6 +852,66 @@ class ASRInferencePipeline:
 
         transcriptions = list(builder.and_return())
         return transcriptions
+
+    @torch.inference_mode()
+    def transcribe_with_word_timestamps(
+        self,
+        inp: AudioInput,
+        *,
+        batch_size: int = 2,
+    ) -> List[List[WordTimestamp]]:
+        """Transcribe audio and return word-level timestamps (CTC models only)."""
+        if len(inp) == 0:
+            return []
+
+        if not isinstance(self.model, Wav2Vec2AsrModel):
+            raise NotImplementedError(
+                "Word-level timestamps are only supported for CTC models."
+            )
+
+        builder = DataPipeline.zip(
+            [
+                self._build_audio_wavform_pipeline(inp).and_return(),
+                read_sequence([None] * len(inp)).and_return(),
+            ]
+        )
+        builder = builder.bucket(batch_size)
+        builder = builder.map(self._create_batch_simple)
+        builder = builder.prefetch(1)
+        builder = builder.map(self._apply_model_wav2vec2asr_with_word_timestamps)
+        builder = builder.yield_from(lambda seq: read_sequence(seq).and_return())
+
+        return list(builder.and_return())
+
+    @torch.inference_mode()
+    def transcribe_with_text_and_word_timestamps(
+        self,
+        inp: AudioInput,
+        *,
+        batch_size: int = 2,
+    ) -> List[tuple[str, List[WordTimestamp]]]:
+        """Transcribe audio and return text plus word-level timestamps (CTC models only)."""
+        if len(inp) == 0:
+            return []
+
+        if not isinstance(self.model, Wav2Vec2AsrModel):
+            raise NotImplementedError(
+                "Word-level timestamps are only supported for CTC models."
+            )
+
+        builder = DataPipeline.zip(
+            [
+                self._build_audio_wavform_pipeline(inp).and_return(),
+                read_sequence([None] * len(inp)).and_return(),
+            ]
+        )
+        builder = builder.bucket(batch_size)
+        builder = builder.map(self._create_batch_simple)
+        builder = builder.prefetch(1)
+        builder = builder.map(self._apply_model_wav2vec2asr_with_text_and_word_timestamps)
+        builder = builder.yield_from(lambda seq: read_sequence(seq).and_return())
+
+        return list(builder.and_return())
 
     @torch.inference_mode()
     def transcribe_with_context(
