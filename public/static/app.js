@@ -1875,8 +1875,11 @@ if (waveformCanvas) {
   waveformCtx = waveformCanvas.getContext("2d");
 }
 if (spectrogramCanvas) {
-  // Use willReadFrequently for better performance with getImageData
+  // Use willReadFrequently to optimize frequent pixel operations
   spectrogramCtx = spectrogramCanvas.getContext("2d", { willReadFrequently: true });
+  if (spectrogramCtx) {
+    spectrogramCtx.imageSmoothingEnabled = false;
+  }
 }
 
 function initAudioContext() {
@@ -1904,6 +1907,7 @@ function ensureAudioSource() {
 
   if (!audioSource && audioEl.src) {
     try {
+      audioEl.crossOrigin = "anonymous";
       audioSource = audioContext.createMediaElementSource(audioEl);
       audioSource.connect(analyser);
       analyser.connect(audioContext.destination);
@@ -1941,13 +1945,17 @@ function resizeWaveformCanvas() {
   waveformCanvas.height = rect.height * dpr;
   waveformCanvas.style.width = `${rect.width}px`;
   waveformCanvas.style.height = `${rect.height}px`;
-  waveformCtx.scale(dpr, dpr);
-  
+  if (waveformCtx) {
+    waveformCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
   spectrogramCanvas.width = rect.width * dpr;
   spectrogramCanvas.height = rect.height * dpr;
   spectrogramCanvas.style.width = `${rect.width}px`;
   spectrogramCanvas.style.height = `${rect.height}px`;
-  spectrogramCtx.scale(dpr, dpr);
+  if (spectrogramCtx) {
+    spectrogramCtx.setTransform(1, 0, 0, 1, 0, 0);
+  }
 }
 
 let audioBufferCache = null; // Cache decoded audio buffer
@@ -2079,27 +2087,43 @@ function drawWaveform() {
   }
 }
 
+let spectrogramDataArray = new Uint8Array(2048);
+
 function drawSpectrogram() {
   if (!spectrogramCtx || !analyser) return;
-  
+
   const canvas = spectrogramCanvas;
-  const width = canvas.width / (window.devicePixelRatio || 1);
-  const height = canvas.height / (window.devicePixelRatio || 1) - 24;
-  
+  const width = canvas.width;
+  const height = canvas.height;
+  if (width <= 0 || height <= 0) return;
+
+  if (spectrogramDataArray.length !== analyser.frequencyBinCount) {
+    spectrogramDataArray = new Uint8Array(analyser.frequencyBinCount);
+  }
+  analyser.getByteFrequencyData(spectrogramDataArray);
+
+  // Shift existing content left by 1 device pixel
+  if (width > 1) {
+    spectrogramCtx.drawImage(
+      canvas,
+      1,
+      0,
+      width - 1,
+      height,
+      0,
+      0,
+      width - 1,
+      height
+    );
+  }
+
+  // Draw new column on the right
   const bufferLength = analyser.frequencyBinCount;
-  const dataArray = new Uint8Array(bufferLength);
-  analyser.getByteFrequencyData(dataArray);
-  
-  // Shift existing content left
-  const imageData = spectrogramCtx.getImageData(1, 0, width - 1, height);
-  spectrogramCtx.putImageData(imageData, 0, 0);
-  
-  // Draw new column on right
-  for (let i = 0; i < height; i++) {
-    const freqIndex = Math.floor((1 - i / height) * bufferLength);
-    const value = dataArray[freqIndex] || 0;
+  for (let y = 0; y < height; y++) {
+    const freqIndex = Math.floor((1 - y / height) * bufferLength);
+    const value = spectrogramDataArray[freqIndex] || 0;
     const normalized = value / 255;
-    
+
     // Color mapping
     let r, g, b;
     if (normalized < 0.2) {
@@ -2115,9 +2139,9 @@ function drawSpectrogram() {
       g = 21 + Math.floor(79 * t);
       b = 21 + Math.floor(79 * t);
     }
-    
+
     spectrogramCtx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-    spectrogramCtx.fillRect(width - 1, i, 1, 1);
+    spectrogramCtx.fillRect(width - 1, y, 1, 1);
   }
 }
 
@@ -2364,6 +2388,7 @@ if (tabSpectrogram) {
     tabWaveform.classList.remove("active");
     spectrogramCanvas.classList.remove("hidden");
     waveformCanvas.classList.add("hidden");
+    ensureAudioSource();
     // Clear and start fresh
     spectrogramCtx.clearRect(0, 0, spectrogramCanvas.width, spectrogramCanvas.height);
   });
@@ -2392,7 +2417,10 @@ if (zoomOutBtn) {
 
 // Click on waveform/spectrogram container to seek and toggle play/pause
 function handleCanvasClick(e) {
-  if (!audioEl.duration) return;
+  if (!audioEl.duration || !waveformCanvasContainer) return;
+
+  // Ignore clicks on drag handles
+  if (e.target.closest(".waveform-segment-handle")) return;
 
   const rect = waveformCanvasContainer.getBoundingClientRect();
   const x = e.clientX - rect.left;
@@ -2421,7 +2449,7 @@ function handleCanvasClick(e) {
 }
 
 if (waveformCanvasContainer) {
-  waveformCanvasContainer.addEventListener("click", handleCanvasClick);
+  waveformCanvasContainer.addEventListener("pointerdown", handleCanvasClick, true);
 }
 
 // =============================================
@@ -2811,6 +2839,10 @@ audioEl.addEventListener("loadedmetadata", () => {
     updateTimeRuler();
     renderSegmentsOnWaveform();
   }
+});
+
+audioEl.addEventListener("play", () => {
+  ensureAudioSource();
 });
 
 // =============================================
