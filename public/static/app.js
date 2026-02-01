@@ -1863,7 +1863,8 @@ let waveformCtx = null;
 let spectrogramCtx = null;
 let isWaveformVisible = false;
 let currentWaveformView = "waveform"; // "waveform" or "spectrogram"
-let waveformZoom = 1; // pixels per second
+let waveformZoom = 1; // zoom multiplier (1 = fit to width)
+let waveformScrollOffset = 0; // horizontal scroll offset in pixels
 let waveformData = null; // pre-computed waveform peaks
 let spectrogramData = []; // rolling spectrogram data
 let animationFrameId = null;
@@ -1873,7 +1874,8 @@ if (waveformCanvas) {
   waveformCtx = waveformCanvas.getContext("2d");
 }
 if (spectrogramCanvas) {
-  spectrogramCtx = spectrogramCanvas.getContext("2d");
+  // Use willReadFrequently for better performance with getImageData
+  spectrogramCtx = spectrogramCanvas.getContext("2d", { willReadFrequently: true });
 }
 
 function initAudioContext() {
@@ -1936,23 +1938,32 @@ function resizeWaveformCanvas() {
   spectrogramCtx.scale(dpr, dpr);
 }
 
+let audioBufferCache = null; // Cache decoded audio buffer
+
 async function computeWaveformData() {
   if (!audioEl.src || !audioEl.duration) return;
   
   try {
-    const response = await fetch(audioEl.src);
-    const arrayBuffer = await response.arrayBuffer();
-    const tempContext = new (window.AudioContext || window.webkitAudioContext)();
-    const audioBuffer = await tempContext.decodeAudioData(arrayBuffer);
+    // Use cached audio buffer if available
+    if (!audioBufferCache) {
+      const response = await fetch(audioEl.src);
+      const arrayBuffer = await response.arrayBuffer();
+      const tempContext = new (window.AudioContext || window.webkitAudioContext)();
+      audioBufferCache = await tempContext.decodeAudioData(arrayBuffer);
+      tempContext.close();
+    }
     
-    const channelData = audioBuffer.getChannelData(0);
+    const channelData = audioBufferCache.getChannelData(0);
     const samples = channelData.length;
     const canvas = waveformCanvas;
-    const width = canvas.width / (window.devicePixelRatio || 1);
-    const samplesPerPixel = Math.floor(samples / width);
+    const baseWidth = canvas.width / (window.devicePixelRatio || 1);
+    
+    // Apply zoom level - more zoom = more detail (fewer samples per pixel)
+    const zoomedWidth = Math.floor(baseWidth * waveformZoom);
+    const samplesPerPixel = Math.floor(samples / zoomedWidth);
     
     waveformData = [];
-    for (let i = 0; i < width; i++) {
+    for (let i = 0; i < zoomedWidth; i++) {
       let min = 1.0;
       let max = -1.0;
       const start = i * samplesPerPixel;
@@ -1967,36 +1978,55 @@ async function computeWaveformData() {
       waveformData.push({ min, max });
     }
     
-    tempContext.close();
     drawWaveform();
   } catch (err) {
     console.warn("Could not compute waveform:", err);
   }
 }
 
+// Clear audio buffer cache and reset zoom when audio source changes
+audioEl.addEventListener("emptied", () => {
+  audioBufferCache = null;
+  waveformZoom = 1;
+  waveformScrollOffset = 0;
+  waveformData = null;
+});
+
 function drawWaveform() {
   if (!waveformCtx || !waveformData) return;
   
   const canvas = waveformCanvas;
-  const width = canvas.width / (window.devicePixelRatio || 1);
+  const canvasWidth = canvas.width / (window.devicePixelRatio || 1);
   const height = canvas.height / (window.devicePixelRatio || 1) - 24; // Account for time ruler
   const centerY = height / 2;
   
-  waveformCtx.clearRect(0, 0, width, height + 24);
+  // Calculate visible range based on zoom and scroll
+  const totalWidth = waveformData.length;
+  
+  // Auto-center on playhead when zoomed
+  if (waveformZoom > 1 && audioEl.duration) {
+    const playheadPosition = (audioEl.currentTime / audioEl.duration) * totalWidth;
+    const visibleRange = canvasWidth;
+    waveformScrollOffset = Math.max(0, Math.min(playheadPosition - visibleRange / 2, totalWidth - visibleRange));
+  } else {
+    waveformScrollOffset = 0;
+  }
+  
+  waveformCtx.clearRect(0, 0, canvasWidth, height + 24);
   
   // Draw background gradient
   const gradient = waveformCtx.createLinearGradient(0, 0, 0, height);
   gradient.addColorStop(0, "#1a1a2e");
   gradient.addColorStop(1, "#16213e");
   waveformCtx.fillStyle = gradient;
-  waveformCtx.fillRect(0, 0, width, height);
+  waveformCtx.fillRect(0, 0, canvasWidth, height);
   
   // Draw center line
   waveformCtx.strokeStyle = "rgba(255, 255, 255, 0.1)";
   waveformCtx.lineWidth = 1;
   waveformCtx.beginPath();
   waveformCtx.moveTo(0, centerY);
-  waveformCtx.lineTo(width, centerY);
+  waveformCtx.lineTo(canvasWidth, centerY);
   waveformCtx.stroke();
   
   // Draw waveform
@@ -2006,18 +2036,34 @@ function drawWaveform() {
   waveGradient.addColorStop(1, "#8c1515");
   waveformCtx.fillStyle = waveGradient;
   
-  waveformData.forEach((peak, i) => {
+  // Draw visible portion of waveform
+  const startIdx = Math.floor(waveformScrollOffset);
+  const endIdx = Math.min(startIdx + Math.ceil(canvasWidth), waveformData.length);
+  
+  for (let i = startIdx; i < endIdx; i++) {
+    const peak = waveformData[i];
+    const x = i - waveformScrollOffset;
     const minY = centerY + peak.min * centerY * 0.9;
     const maxY = centerY + peak.max * centerY * 0.9;
     const barHeight = Math.max(1, maxY - minY);
-    waveformCtx.fillRect(i, minY, 1, barHeight);
-  });
+    waveformCtx.fillRect(x, minY, 1, barHeight);
+  }
   
   // Draw played region overlay
   if (audioEl.duration) {
-    const playedWidth = (audioEl.currentTime / audioEl.duration) * width;
-    waveformCtx.fillStyle = "rgba(140, 21, 21, 0.3)";
-    waveformCtx.fillRect(0, 0, playedWidth, height);
+    const playheadPosition = (audioEl.currentTime / audioEl.duration) * totalWidth;
+    const playedWidth = playheadPosition - waveformScrollOffset;
+    if (playedWidth > 0) {
+      waveformCtx.fillStyle = "rgba(140, 21, 21, 0.3)";
+      waveformCtx.fillRect(0, 0, Math.min(playedWidth, canvasWidth), height);
+    }
+  }
+  
+  // Show zoom level indicator if zoomed
+  if (waveformZoom > 1) {
+    waveformCtx.fillStyle = "rgba(255, 255, 255, 0.7)";
+    waveformCtx.font = "11px system-ui, sans-serif";
+    waveformCtx.fillText(`${waveformZoom.toFixed(1)}x zoom`, 8, 16);
   }
 }
 
@@ -2067,9 +2113,21 @@ function updatePlayhead() {
   if (!audioEl.duration || !waveformPlayhead) return;
   
   const container = waveformCanvas.parentElement;
-  const width = container.offsetWidth;
-  const position = (audioEl.currentTime / audioEl.duration) * width;
-  waveformPlayhead.style.left = `${position}px`;
+  const canvasWidth = container.offsetWidth;
+  
+  if (waveformZoom > 1 && waveformData) {
+    // When zoomed, playhead position is relative to visible area
+    const totalWidth = waveformData.length;
+    const playheadInData = (audioEl.currentTime / audioEl.duration) * totalWidth;
+    const position = playheadInData - waveformScrollOffset;
+    waveformPlayhead.style.left = `${position}px`;
+    // Hide playhead if outside visible area
+    waveformPlayhead.style.display = (position < 0 || position > canvasWidth) ? "none" : "block";
+  } else {
+    const position = (audioEl.currentTime / audioEl.duration) * canvasWidth;
+    waveformPlayhead.style.left = `${position}px`;
+    waveformPlayhead.style.display = "block";
+  }
 }
 
 function updateTimeRuler() {
@@ -2077,17 +2135,33 @@ function updateTimeRuler() {
   
   waveformTimeRuler.innerHTML = "";
   const container = waveformCanvas.parentElement;
-  const width = container.offsetWidth;
+  const canvasWidth = container.offsetWidth;
   const duration = audioEl.duration;
   
-  // Calculate appropriate interval
+  // Calculate visible time range when zoomed
+  let visibleStartTime = 0;
+  let visibleEndTime = duration;
+  let visibleDuration = duration;
+  
+  if (waveformZoom > 1 && waveformData) {
+    const totalWidth = waveformData.length;
+    visibleStartTime = (waveformScrollOffset / totalWidth) * duration;
+    visibleEndTime = ((waveformScrollOffset + canvasWidth) / totalWidth) * duration;
+    visibleDuration = visibleEndTime - visibleStartTime;
+  }
+  
+  // Calculate appropriate interval based on visible duration
   const pixelsPerMarker = 80;
-  const secondsPerMarker = (pixelsPerMarker / width) * duration;
-  const intervals = [1, 5, 10, 30, 60, 120, 300];
+  const secondsPerMarker = (pixelsPerMarker / canvasWidth) * visibleDuration;
+  const intervals = [0.5, 1, 2, 5, 10, 30, 60, 120, 300];
   const interval = intervals.find(i => i >= secondsPerMarker) || 60;
   
-  for (let time = 0; time <= duration; time += interval) {
-    const position = (time / duration) * 100;
+  // Round start time to nearest interval
+  const startTime = Math.floor(visibleStartTime / interval) * interval;
+  
+  for (let time = startTime; time <= visibleEndTime; time += interval) {
+    if (time < visibleStartTime) continue;
+    const position = ((time - visibleStartTime) / visibleDuration) * 100;
     const mark = document.createElement("div");
     mark.className = "waveform-time-mark";
     mark.style.left = `${position}%`;
@@ -2101,10 +2175,37 @@ function renderSegmentsOnWaveform() {
   
   waveformSegments.innerHTML = "";
   const duration = audioEl.duration;
+  const container = waveformCanvas.parentElement;
+  const canvasWidth = container.offsetWidth;
+  
+  // Calculate visible time range when zoomed
+  let visibleStartTime = 0;
+  let visibleEndTime = duration;
+  
+  if (waveformZoom > 1 && waveformData) {
+    const totalWidth = waveformData.length;
+    visibleStartTime = (waveformScrollOffset / totalWidth) * duration;
+    visibleEndTime = ((waveformScrollOffset + canvasWidth) / totalWidth) * duration;
+  }
   
   activeData.segments.forEach((segment, idx) => {
-    const startPct = (segment.start / duration) * 100;
-    const widthPct = ((segment.end - segment.start) / duration) * 100;
+    // Skip segments outside visible range when zoomed
+    if (waveformZoom > 1 && (segment.end < visibleStartTime || segment.start > visibleEndTime)) {
+      return;
+    }
+    
+    let startPct, widthPct;
+    
+    if (waveformZoom > 1 && waveformData) {
+      const visibleDuration = visibleEndTime - visibleStartTime;
+      const segStart = Math.max(segment.start, visibleStartTime);
+      const segEnd = Math.min(segment.end, visibleEndTime);
+      startPct = ((segStart - visibleStartTime) / visibleDuration) * 100;
+      widthPct = ((segEnd - segStart) / visibleDuration) * 100;
+    } else {
+      startPct = (segment.start / duration) * 100;
+      widthPct = ((segment.end - segment.start) / duration) * 100;
+    }
     
     const segmentEl = document.createElement("div");
     segmentEl.className = "waveform-segment";
@@ -2259,26 +2360,71 @@ if (tabSpectrogram) {
 if (zoomInBtn) {
   zoomInBtn.addEventListener("click", () => {
     waveformZoom = Math.min(waveformZoom * 1.5, 10);
-    computeWaveformData();
+    computeWaveformData().then(() => {
+      updateTimeRuler();
+      renderSegmentsOnWaveform();
+    });
   });
 }
 
 if (zoomOutBtn) {
   zoomOutBtn.addEventListener("click", () => {
-    waveformZoom = Math.max(waveformZoom / 1.5, 0.5);
-    computeWaveformData();
+    waveformZoom = Math.max(waveformZoom / 1.5, 1); // Min zoom is 1 (fit to width)
+    waveformScrollOffset = 0;
+    computeWaveformData().then(() => {
+      updateTimeRuler();
+      renderSegmentsOnWaveform();
+    });
   });
 }
 
-// Click on waveform to seek
+// Click on waveform/spectrogram to seek and toggle play/pause
+function handleCanvasClick(e) {
+  const canvas = e.target;
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const canvasWidth = rect.width;
+  
+  let newTime;
+  let currentPosition;
+  
+  if (waveformZoom > 1 && waveformData && currentWaveformView === "waveform") {
+    // When zoomed, calculate position relative to scroll offset
+    const totalWidth = waveformData.length;
+    const clickPositionInData = x + waveformScrollOffset;
+    newTime = (clickPositionInData / totalWidth) * audioEl.duration;
+    currentPosition = (audioEl.currentTime / audioEl.duration) * totalWidth - waveformScrollOffset;
+  } else {
+    newTime = (x / canvasWidth) * audioEl.duration;
+    currentPosition = (audioEl.currentTime / audioEl.duration) * canvasWidth;
+  }
+  
+  // If clicking near current position (within 2% of width), toggle play/pause
+  const clickDistance = Math.abs(x - currentPosition);
+  
+  if (clickDistance < canvasWidth * 0.02) {
+    // Toggle play/pause
+    if (audioEl.paused) {
+      audioEl.play();
+    } else {
+      audioEl.pause();
+    }
+  } else {
+    // Seek to clicked position (clamp to valid range)
+    audioEl.currentTime = Math.max(0, Math.min(newTime, audioEl.duration));
+    // Start playing if not already
+    if (audioEl.paused) {
+      audioEl.play();
+    }
+  }
+}
+
 if (waveformCanvas) {
-  waveformCanvas.addEventListener("click", (e) => {
-    const rect = waveformCanvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const width = rect.width;
-    const newTime = (x / width) * audioEl.duration;
-    audioEl.currentTime = newTime;
-  });
+  waveformCanvas.addEventListener("click", handleCanvasClick);
+}
+
+if (spectrogramCanvas) {
+  spectrogramCanvas.addEventListener("click", handleCanvasClick);
 }
 
 // =============================================
