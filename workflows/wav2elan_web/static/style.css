@@ -4,9 +4,9 @@
   --ink: #000000;
   --ink-soft: #1a1a1a;
   --ink-muted: #4d4d4d;
-  --accent: #000000;
-  --accent-soft: #333333;
-  --accent-glow: rgba(0, 0, 0, 0.08);
+  --accent: #8c1515;
+  --accent-soft: #b31b1b;
+  --accent-glow: rgba(140, 21, 21, 0.12);
   --card: #ffffff;
   --card-border: #d9d9d9;
   --sidebar: #fafafa;
@@ -67,13 +67,10 @@ body {
 .brand-mark {
   width: 44px;
   height: 44px;
-  border-radius: 12px;
-  background: var(--ink);
-  color: var(--bg);
-  display: grid;
-  place-items: center;
-  font-family: var(--serif);
-  font-weight: 600;
+  border-radius: 10px;
+  object-fit: contain;
+  display: block;
+  background: transparent;
 }
 
 .sidebar h1 {
