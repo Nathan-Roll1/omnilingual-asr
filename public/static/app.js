@@ -1838,3 +1838,868 @@ if (citeCopy && citeText) {
 }
 
 fetchHistory();
+
+// =============================================
+// WAVEFORM/SPECTROGRAM VISUALIZATION
+// =============================================
+
+const waveformPanel = document.getElementById("waveform-panel");
+const waveformCanvas = document.getElementById("waveform-canvas");
+const spectrogramCanvas = document.getElementById("spectrogram-canvas");
+const waveformPlayhead = document.getElementById("waveform-playhead");
+const waveformSegments = document.getElementById("waveform-segments");
+const waveformTimeRuler = document.getElementById("waveform-time-ruler");
+const toggleWaveformBtn = document.getElementById("toggle-waveform");
+const tabWaveform = document.getElementById("tab-waveform");
+const tabSpectrogram = document.getElementById("tab-spectrogram");
+const zoomInBtn = document.getElementById("zoom-in");
+const zoomOutBtn = document.getElementById("zoom-out");
+const waveformCloseBtn = document.getElementById("waveform-close");
+
+let audioContext = null;
+let analyser = null;
+let audioSource = null;
+let waveformCtx = null;
+let spectrogramCtx = null;
+let isWaveformVisible = false;
+let currentWaveformView = "waveform"; // "waveform" or "spectrogram"
+let waveformZoom = 1; // pixels per second
+let waveformData = null; // pre-computed waveform peaks
+let spectrogramData = []; // rolling spectrogram data
+let animationFrameId = null;
+
+// Initialize canvas contexts
+if (waveformCanvas) {
+  waveformCtx = waveformCanvas.getContext("2d");
+}
+if (spectrogramCanvas) {
+  spectrogramCtx = spectrogramCanvas.getContext("2d");
+}
+
+function initAudioContext() {
+  if (audioContext) return;
+  
+  try {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.8;
+    
+    // Connect audio element to analyser
+    if (!audioSource && audioEl.src) {
+      audioSource = audioContext.createMediaElementSource(audioEl);
+      audioSource.connect(analyser);
+      analyser.connect(audioContext.destination);
+    }
+  } catch (err) {
+    console.warn("Web Audio API not supported:", err);
+  }
+}
+
+function toggleWaveformPanel() {
+  isWaveformVisible = !isWaveformVisible;
+  waveformPanel.classList.toggle("visible", isWaveformVisible);
+  toggleWaveformBtn.setAttribute("aria-pressed", isWaveformVisible);
+  
+  if (isWaveformVisible) {
+    initAudioContext();
+    resizeWaveformCanvas();
+    if (audioContext?.state === "suspended") {
+      audioContext.resume();
+    }
+    computeWaveformData();
+    startVisualization();
+    renderSegmentsOnWaveform();
+    updateTimeRuler();
+  } else {
+    stopVisualization();
+  }
+}
+
+function resizeWaveformCanvas() {
+  if (!waveformCanvas || !spectrogramCanvas) return;
+  
+  const container = waveformCanvas.parentElement;
+  const rect = container.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  
+  waveformCanvas.width = rect.width * dpr;
+  waveformCanvas.height = rect.height * dpr;
+  waveformCanvas.style.width = `${rect.width}px`;
+  waveformCanvas.style.height = `${rect.height}px`;
+  waveformCtx.scale(dpr, dpr);
+  
+  spectrogramCanvas.width = rect.width * dpr;
+  spectrogramCanvas.height = rect.height * dpr;
+  spectrogramCanvas.style.width = `${rect.width}px`;
+  spectrogramCanvas.style.height = `${rect.height}px`;
+  spectrogramCtx.scale(dpr, dpr);
+}
+
+async function computeWaveformData() {
+  if (!audioEl.src || !audioEl.duration) return;
+  
+  try {
+    const response = await fetch(audioEl.src);
+    const arrayBuffer = await response.arrayBuffer();
+    const tempContext = new (window.AudioContext || window.webkitAudioContext)();
+    const audioBuffer = await tempContext.decodeAudioData(arrayBuffer);
+    
+    const channelData = audioBuffer.getChannelData(0);
+    const samples = channelData.length;
+    const canvas = waveformCanvas;
+    const width = canvas.width / (window.devicePixelRatio || 1);
+    const samplesPerPixel = Math.floor(samples / width);
+    
+    waveformData = [];
+    for (let i = 0; i < width; i++) {
+      let min = 1.0;
+      let max = -1.0;
+      const start = i * samplesPerPixel;
+      const end = Math.min(start + samplesPerPixel, samples);
+      
+      for (let j = start; j < end; j++) {
+        const sample = channelData[j];
+        if (sample < min) min = sample;
+        if (sample > max) max = sample;
+      }
+      
+      waveformData.push({ min, max });
+    }
+    
+    tempContext.close();
+    drawWaveform();
+  } catch (err) {
+    console.warn("Could not compute waveform:", err);
+  }
+}
+
+function drawWaveform() {
+  if (!waveformCtx || !waveformData) return;
+  
+  const canvas = waveformCanvas;
+  const width = canvas.width / (window.devicePixelRatio || 1);
+  const height = canvas.height / (window.devicePixelRatio || 1) - 24; // Account for time ruler
+  const centerY = height / 2;
+  
+  waveformCtx.clearRect(0, 0, width, height + 24);
+  
+  // Draw background gradient
+  const gradient = waveformCtx.createLinearGradient(0, 0, 0, height);
+  gradient.addColorStop(0, "#1a1a2e");
+  gradient.addColorStop(1, "#16213e");
+  waveformCtx.fillStyle = gradient;
+  waveformCtx.fillRect(0, 0, width, height);
+  
+  // Draw center line
+  waveformCtx.strokeStyle = "rgba(255, 255, 255, 0.1)";
+  waveformCtx.lineWidth = 1;
+  waveformCtx.beginPath();
+  waveformCtx.moveTo(0, centerY);
+  waveformCtx.lineTo(width, centerY);
+  waveformCtx.stroke();
+  
+  // Draw waveform
+  const waveGradient = waveformCtx.createLinearGradient(0, 0, 0, height);
+  waveGradient.addColorStop(0, "#8c1515");
+  waveGradient.addColorStop(0.5, "#b31b1b");
+  waveGradient.addColorStop(1, "#8c1515");
+  waveformCtx.fillStyle = waveGradient;
+  
+  waveformData.forEach((peak, i) => {
+    const minY = centerY + peak.min * centerY * 0.9;
+    const maxY = centerY + peak.max * centerY * 0.9;
+    const barHeight = Math.max(1, maxY - minY);
+    waveformCtx.fillRect(i, minY, 1, barHeight);
+  });
+  
+  // Draw played region overlay
+  if (audioEl.duration) {
+    const playedWidth = (audioEl.currentTime / audioEl.duration) * width;
+    waveformCtx.fillStyle = "rgba(140, 21, 21, 0.3)";
+    waveformCtx.fillRect(0, 0, playedWidth, height);
+  }
+}
+
+function drawSpectrogram() {
+  if (!spectrogramCtx || !analyser) return;
+  
+  const canvas = spectrogramCanvas;
+  const width = canvas.width / (window.devicePixelRatio || 1);
+  const height = canvas.height / (window.devicePixelRatio || 1) - 24;
+  
+  const bufferLength = analyser.frequencyBinCount;
+  const dataArray = new Uint8Array(bufferLength);
+  analyser.getByteFrequencyData(dataArray);
+  
+  // Shift existing content left
+  const imageData = spectrogramCtx.getImageData(1, 0, width - 1, height);
+  spectrogramCtx.putImageData(imageData, 0, 0);
+  
+  // Draw new column on right
+  for (let i = 0; i < height; i++) {
+    const freqIndex = Math.floor((1 - i / height) * bufferLength);
+    const value = dataArray[freqIndex] || 0;
+    const normalized = value / 255;
+    
+    // Color mapping
+    let r, g, b;
+    if (normalized < 0.2) {
+      r = g = b = Math.floor(normalized * 5 * 30);
+    } else if (normalized < 0.5) {
+      const t = (normalized - 0.2) / 0.3;
+      r = Math.floor(140 * t);
+      g = Math.floor(21 * t);
+      b = Math.floor(21 * t);
+    } else {
+      const t = (normalized - 0.5) / 0.5;
+      r = 140 + Math.floor(115 * t);
+      g = 21 + Math.floor(79 * t);
+      b = 21 + Math.floor(79 * t);
+    }
+    
+    spectrogramCtx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+    spectrogramCtx.fillRect(width - 1, i, 1, 1);
+  }
+}
+
+function updatePlayhead() {
+  if (!audioEl.duration || !waveformPlayhead) return;
+  
+  const container = waveformCanvas.parentElement;
+  const width = container.offsetWidth;
+  const position = (audioEl.currentTime / audioEl.duration) * width;
+  waveformPlayhead.style.left = `${position}px`;
+}
+
+function updateTimeRuler() {
+  if (!waveformTimeRuler || !audioEl.duration) return;
+  
+  waveformTimeRuler.innerHTML = "";
+  const container = waveformCanvas.parentElement;
+  const width = container.offsetWidth;
+  const duration = audioEl.duration;
+  
+  // Calculate appropriate interval
+  const pixelsPerMarker = 80;
+  const secondsPerMarker = (pixelsPerMarker / width) * duration;
+  const intervals = [1, 5, 10, 30, 60, 120, 300];
+  const interval = intervals.find(i => i >= secondsPerMarker) || 60;
+  
+  for (let time = 0; time <= duration; time += interval) {
+    const position = (time / duration) * 100;
+    const mark = document.createElement("div");
+    mark.className = "waveform-time-mark";
+    mark.style.left = `${position}%`;
+    mark.textContent = formatTime(time);
+    waveformTimeRuler.appendChild(mark);
+  }
+}
+
+function renderSegmentsOnWaveform() {
+  if (!waveformSegments || !activeData?.segments || !audioEl.duration) return;
+  
+  waveformSegments.innerHTML = "";
+  const duration = audioEl.duration;
+  
+  activeData.segments.forEach((segment, idx) => {
+    const startPct = (segment.start / duration) * 100;
+    const widthPct = ((segment.end - segment.start) / duration) * 100;
+    
+    const segmentEl = document.createElement("div");
+    segmentEl.className = "waveform-segment";
+    segmentEl.style.left = `${startPct}%`;
+    segmentEl.style.width = `${widthPct}%`;
+    segmentEl.dataset.segment = idx;
+    
+    // Add label
+    const label = document.createElement("div");
+    label.className = "waveform-segment-label";
+    label.textContent = segment.speaker || `#${idx + 1}`;
+    segmentEl.appendChild(label);
+    
+    // Add drag handles
+    const leftHandle = document.createElement("div");
+    leftHandle.className = "waveform-segment-handle left";
+    leftHandle.dataset.handle = "start";
+    leftHandle.dataset.segment = idx;
+    segmentEl.appendChild(leftHandle);
+    
+    const rightHandle = document.createElement("div");
+    rightHandle.className = "waveform-segment-handle right";
+    rightHandle.dataset.handle = "end";
+    rightHandle.dataset.segment = idx;
+    segmentEl.appendChild(rightHandle);
+    
+    // Click to seek
+    segmentEl.addEventListener("click", (e) => {
+      if (e.target.classList.contains("waveform-segment-handle")) return;
+      audioEl.currentTime = segment.start;
+      audioEl.play();
+    });
+    
+    // Drag handles for adjusting boundaries
+    setupDragHandle(leftHandle, segment, idx, "start");
+    setupDragHandle(rightHandle, segment, idx, "end");
+    
+    waveformSegments.appendChild(segmentEl);
+  });
+}
+
+function setupDragHandle(handle, segment, segIdx, handleType) {
+  let isDragging = false;
+  let startX = 0;
+  let originalTime = 0;
+  
+  handle.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    isDragging = true;
+    startX = e.clientX;
+    originalTime = handleType === "start" ? segment.start : segment.end;
+    document.body.style.cursor = "ew-resize";
+  });
+  
+  document.addEventListener("mousemove", (e) => {
+    if (!isDragging) return;
+    
+    const container = waveformCanvas.parentElement;
+    const width = container.offsetWidth;
+    const duration = audioEl.duration;
+    const deltaX = e.clientX - startX;
+    const deltaTime = (deltaX / width) * duration;
+    let newTime = originalTime + deltaTime;
+    
+    // Constraints
+    if (handleType === "start") {
+      newTime = Math.max(0, Math.min(newTime, segment.end - 0.1));
+      segment.start = newTime;
+    } else {
+      newTime = Math.max(segment.start + 0.1, Math.min(newTime, duration));
+      segment.end = newTime;
+    }
+    
+    // Update activeData
+    if (activeData?.segments[segIdx]) {
+      activeData.segments[segIdx][handleType] = newTime;
+    }
+    
+    renderSegmentsOnWaveform();
+  });
+  
+  document.addEventListener("mouseup", async () => {
+    if (isDragging) {
+      isDragging = false;
+      document.body.style.cursor = "";
+      
+      // Save changes
+      if (activeId && activeData) {
+        await updateHistory(activeId, { segments: activeData.segments });
+        renderTranscript(activeData);
+      }
+    }
+  });
+}
+
+function startVisualization() {
+  if (animationFrameId) return;
+  
+  function animate() {
+    if (currentWaveformView === "waveform") {
+      drawWaveform();
+    } else {
+      drawSpectrogram();
+    }
+    updatePlayhead();
+    animationFrameId = requestAnimationFrame(animate);
+  }
+  
+  animate();
+}
+
+function stopVisualization() {
+  if (animationFrameId) {
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+  }
+}
+
+// Waveform panel event listeners
+if (toggleWaveformBtn) {
+  toggleWaveformBtn.addEventListener("click", toggleWaveformPanel);
+}
+
+if (waveformCloseBtn) {
+  waveformCloseBtn.addEventListener("click", toggleWaveformPanel);
+}
+
+if (tabWaveform) {
+  tabWaveform.addEventListener("click", () => {
+    currentWaveformView = "waveform";
+    tabWaveform.classList.add("active");
+    tabSpectrogram.classList.remove("active");
+    waveformCanvas.classList.remove("hidden");
+    spectrogramCanvas.classList.add("hidden");
+    drawWaveform();
+  });
+}
+
+if (tabSpectrogram) {
+  tabSpectrogram.addEventListener("click", () => {
+    currentWaveformView = "spectrogram";
+    tabSpectrogram.classList.add("active");
+    tabWaveform.classList.remove("active");
+    spectrogramCanvas.classList.remove("hidden");
+    waveformCanvas.classList.add("hidden");
+    // Clear and start fresh
+    spectrogramCtx.clearRect(0, 0, spectrogramCanvas.width, spectrogramCanvas.height);
+  });
+}
+
+if (zoomInBtn) {
+  zoomInBtn.addEventListener("click", () => {
+    waveformZoom = Math.min(waveformZoom * 1.5, 10);
+    computeWaveformData();
+  });
+}
+
+if (zoomOutBtn) {
+  zoomOutBtn.addEventListener("click", () => {
+    waveformZoom = Math.max(waveformZoom / 1.5, 0.5);
+    computeWaveformData();
+  });
+}
+
+// Click on waveform to seek
+if (waveformCanvas) {
+  waveformCanvas.addEventListener("click", (e) => {
+    const rect = waveformCanvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const width = rect.width;
+    const newTime = (x / width) * audioEl.duration;
+    audioEl.currentTime = newTime;
+  });
+}
+
+// =============================================
+// PLAYBACK SPEED CONTROLS
+// =============================================
+
+const speedBtn = document.getElementById("speed-btn");
+const speedMenu = document.getElementById("speed-menu");
+const speedLabel = document.getElementById("speed-label");
+let currentSpeed = 1;
+
+if (speedBtn && speedMenu) {
+  speedBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    speedMenu.classList.toggle("hidden");
+  });
+  
+  document.addEventListener("click", (e) => {
+    if (!speedMenu.contains(e.target) && e.target !== speedBtn) {
+      speedMenu.classList.add("hidden");
+    }
+  });
+  
+  speedMenu.querySelectorAll(".speed-option").forEach(option => {
+    option.addEventListener("click", () => {
+      const speed = parseFloat(option.dataset.speed);
+      setPlaybackSpeed(speed);
+      speedMenu.classList.add("hidden");
+    });
+  });
+}
+
+function setPlaybackSpeed(speed) {
+  currentSpeed = speed;
+  audioEl.playbackRate = speed;
+  if (speedLabel) {
+    speedLabel.textContent = `${speed}x`;
+    speedBtn.setAttribute("aria-label", `Playback speed: ${speed}x`);
+  }
+  
+  // Update active state in menu
+  speedMenu.querySelectorAll(".speed-option").forEach(opt => {
+    opt.classList.toggle("active", parseFloat(opt.dataset.speed) === speed);
+  });
+}
+
+// =============================================
+// SKIP FORWARD/BACK BUTTONS
+// =============================================
+
+const skipBackBtn = document.getElementById("skip-back");
+const skipForwardBtn = document.getElementById("skip-forward");
+
+if (skipBackBtn) {
+  skipBackBtn.addEventListener("click", () => {
+    audioEl.currentTime = Math.max(0, audioEl.currentTime - 5);
+  });
+}
+
+if (skipForwardBtn) {
+  skipForwardBtn.addEventListener("click", () => {
+    audioEl.currentTime = Math.min(audioEl.duration, audioEl.currentTime + 5);
+  });
+}
+
+// =============================================
+// KEYBOARD SHORTCUTS
+// =============================================
+
+const shortcutsModal = document.getElementById("shortcuts-modal");
+const shortcutsClose = document.getElementById("shortcuts-close");
+let selectedSegmentIdx = null;
+
+document.addEventListener("keydown", (e) => {
+  // Don't trigger shortcuts when editing text
+  if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.isContentEditable) {
+    // Allow Escape to cancel edit
+    if (e.key === "Escape" && editState) {
+      e.preventDefault();
+      if (editState.el) {
+        editState.el.textContent = editState.original;
+        finalizeInlineEdit(editState.el, true);
+      }
+    }
+    return;
+  }
+  
+  switch (e.key) {
+    case " ": // Space - Play/Pause
+      e.preventDefault();
+      if (audioEl.paused) {
+        audioEl.play();
+      } else {
+        audioEl.pause();
+      }
+      break;
+      
+    case "ArrowLeft":
+      e.preventDefault();
+      if (e.shiftKey) {
+        audioEl.currentTime = Math.max(0, audioEl.currentTime - 10);
+      } else {
+        audioEl.currentTime = Math.max(0, audioEl.currentTime - 5);
+      }
+      break;
+      
+    case "ArrowRight":
+      e.preventDefault();
+      if (e.shiftKey) {
+        audioEl.currentTime = Math.min(audioEl.duration || 0, audioEl.currentTime + 10);
+      } else {
+        audioEl.currentTime = Math.min(audioEl.duration || 0, audioEl.currentTime + 5);
+      }
+      break;
+      
+    case "ArrowUp":
+      e.preventDefault();
+      navigateSegment(-1);
+      break;
+      
+    case "ArrowDown":
+      e.preventDefault();
+      navigateSegment(1);
+      break;
+      
+    case "Home":
+      e.preventDefault();
+      audioEl.currentTime = 0;
+      break;
+      
+    case "End":
+      e.preventDefault();
+      audioEl.currentTime = audioEl.duration || 0;
+      break;
+      
+    case "[":
+      e.preventDefault();
+      setPlaybackSpeed(Math.max(0.25, currentSpeed - 0.25));
+      break;
+      
+    case "]":
+      e.preventDefault();
+      setPlaybackSpeed(Math.min(3, currentSpeed + 0.25));
+      break;
+      
+    case "w":
+    case "W":
+      e.preventDefault();
+      toggleWaveformPanel();
+      break;
+      
+    case "?":
+      e.preventDefault();
+      toggleShortcutsModal();
+      break;
+      
+    case "Escape":
+      if (!shortcutsModal.classList.contains("hidden")) {
+        e.preventDefault();
+        shortcutsModal.classList.add("hidden");
+      }
+      break;
+  }
+});
+
+function navigateSegment(direction) {
+  if (!activeData?.segments?.length) return;
+  
+  if (selectedSegmentIdx === null) {
+    selectedSegmentIdx = direction > 0 ? 0 : activeData.segments.length - 1;
+  } else {
+    selectedSegmentIdx = Math.max(0, Math.min(activeData.segments.length - 1, selectedSegmentIdx + direction));
+  }
+  
+  const segment = activeData.segments[selectedSegmentIdx];
+  if (segment) {
+    audioEl.currentTime = segment.start;
+    
+    // Scroll segment into view
+    const segmentEl = document.querySelector(`.segment[data-segment="${selectedSegmentIdx}"]`);
+    if (segmentEl) {
+      segmentEl.scrollIntoView({ behavior: "smooth", block: "center" });
+      
+      // Highlight
+      document.querySelectorAll(".segment.selected").forEach(el => el.classList.remove("selected"));
+      segmentEl.classList.add("selected");
+    }
+  }
+}
+
+function toggleShortcutsModal() {
+  shortcutsModal.classList.toggle("hidden");
+}
+
+if (shortcutsClose) {
+  shortcutsClose.addEventListener("click", () => {
+    shortcutsModal.classList.add("hidden");
+  });
+}
+
+if (shortcutsModal) {
+  shortcutsModal.addEventListener("click", (e) => {
+    if (e.target === shortcutsModal) {
+      shortcutsModal.classList.add("hidden");
+    }
+  });
+}
+
+// =============================================
+// INLINE TIMESTAMP EDITING
+// =============================================
+
+function createTimestampEditor(segmentEl, segment, segIdx) {
+  const timeEl = segmentEl.querySelector(".segment-time");
+  if (!timeEl || timeEl.classList.contains("editing")) return;
+  
+  timeEl.classList.add("editing");
+  
+  const originalStart = segment.start;
+  const originalEnd = segment.end;
+  
+  const editor = document.createElement("div");
+  editor.className = "timestamp-editor";
+  editor.innerHTML = `
+    <input type="text" class="timestamp-input" id="ts-start" value="${formatTimeMs(segment.start)}" placeholder="0:00.00">
+    <span class="timestamp-separator">→</span>
+    <input type="text" class="timestamp-input" id="ts-end" value="${formatTimeMs(segment.end)}" placeholder="0:00.00">
+    <div class="timestamp-actions">
+      <button class="timestamp-action-btn save" title="Save">✓</button>
+      <button class="timestamp-action-btn cancel" title="Cancel">✕</button>
+    </div>
+  `;
+  
+  timeEl.innerHTML = "";
+  timeEl.appendChild(editor);
+  
+  const startInput = editor.querySelector("#ts-start");
+  const endInput = editor.querySelector("#ts-end");
+  const saveBtn = editor.querySelector(".save");
+  const cancelBtn = editor.querySelector(".cancel");
+  
+  startInput.focus();
+  startInput.select();
+  
+  async function saveTimestamps() {
+    const newStart = parseTimeMs(startInput.value);
+    const newEnd = parseTimeMs(endInput.value);
+    
+    if (isNaN(newStart) || isNaN(newEnd) || newStart >= newEnd) {
+      alert("Invalid timestamps. Start must be before end.");
+      return;
+    }
+    
+    segment.start = newStart;
+    segment.end = newEnd;
+    
+    if (activeData?.segments[segIdx]) {
+      activeData.segments[segIdx].start = newStart;
+      activeData.segments[segIdx].end = newEnd;
+    }
+    
+    await updateHistory(activeId, { segments: activeData.segments });
+    rebuildActiveWords();
+    renderTranscript(activeData);
+    if (isWaveformVisible) {
+      renderSegmentsOnWaveform();
+    }
+  }
+  
+  function cancelEdit() {
+    segment.start = originalStart;
+    segment.end = originalEnd;
+    timeEl.classList.remove("editing");
+    timeEl.textContent = formatTimeRange(originalStart, originalEnd);
+    timeEl.classList.add("editable");
+  }
+  
+  saveBtn.addEventListener("click", saveTimestamps);
+  cancelBtn.addEventListener("click", cancelEdit);
+  
+  startInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      saveTimestamps();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancelEdit();
+    } else if (e.key === "Tab" && !e.shiftKey) {
+      e.preventDefault();
+      endInput.focus();
+      endInput.select();
+    }
+  });
+  
+  endInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      saveTimestamps();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancelEdit();
+    } else if (e.key === "Tab" && e.shiftKey) {
+      e.preventDefault();
+      startInput.focus();
+      startInput.select();
+    }
+  });
+}
+
+function formatTimeMs(seconds) {
+  const mins = Math.floor(seconds / 60);
+  const secs = (seconds % 60).toFixed(2);
+  return `${mins}:${secs.padStart(5, "0")}`;
+}
+
+function parseTimeMs(str) {
+  const parts = str.split(":");
+  if (parts.length === 2) {
+    const mins = parseInt(parts[0], 10);
+    const secs = parseFloat(parts[1]);
+    return mins * 60 + secs;
+  } else if (parts.length === 1) {
+    return parseFloat(parts[0]);
+  }
+  return NaN;
+}
+
+// =============================================
+// AUTO-SCROLL TRANSCRIPT
+// =============================================
+
+let autoScrollEnabled = true;
+let userScrolled = false;
+let scrollTimeout = null;
+
+// Detect user scroll
+if (transcriptEl) {
+  transcriptEl.addEventListener("scroll", () => {
+    userScrolled = true;
+    clearTimeout(scrollTimeout);
+    scrollTimeout = setTimeout(() => {
+      userScrolled = false;
+    }, 3000);
+  });
+}
+
+function scrollToCurrentWord(wordEl) {
+  if (!wordEl || !autoScrollEnabled || userScrolled) return;
+  
+  const rect = wordEl.getBoundingClientRect();
+  const containerRect = transcriptEl.getBoundingClientRect();
+  
+  const isVisible = rect.top >= containerRect.top && rect.bottom <= containerRect.bottom;
+  
+  if (!isVisible) {
+    wordEl.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+}
+
+// =============================================
+// ENHANCED AUDIO EVENTS
+// =============================================
+
+// Update timeupdate to include auto-scroll
+const originalTimeUpdate = audioEl.ontimeupdate;
+audioEl.addEventListener("timeupdate", () => {
+  // Existing functionality continues to work
+  // Add auto-scroll
+  if (currentWord && autoScrollEnabled) {
+    scrollToCurrentWord(currentWord);
+  }
+  
+  // Update waveform if visible
+  if (isWaveformVisible) {
+    updatePlayhead();
+    if (currentWaveformView === "waveform") {
+      drawWaveform();
+    }
+  }
+});
+
+// Re-initialize visualization when audio source changes
+audioEl.addEventListener("loadedmetadata", () => {
+  if (isWaveformVisible) {
+    computeWaveformData();
+    updateTimeRuler();
+    renderSegmentsOnWaveform();
+  }
+});
+
+// =============================================
+// ENHANCED TRANSCRIPT RENDERING
+// =============================================
+
+// Modify renderBoxTranscript to add clickable timestamps
+const originalRenderBoxTranscript = renderBoxTranscript;
+window.renderBoxTranscript = function(data) {
+  originalRenderBoxTranscript(data);
+  
+  // Make timestamps clickable for editing
+  document.querySelectorAll(".segment-time").forEach((timeEl, idx) => {
+    timeEl.classList.add("editable");
+    timeEl.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const segmentEl = timeEl.closest(".segment");
+      const segment = data.segments[idx];
+      if (segment && segmentEl) {
+        createTimestampEditor(segmentEl, segment, idx);
+      }
+    });
+  });
+};
+
+// Window resize handler
+window.addEventListener("resize", () => {
+  if (isWaveformVisible) {
+    resizeWaveformCanvas();
+    computeWaveformData();
+    updateTimeRuler();
+    renderSegmentsOnWaveform();
+  }
+});
+
+console.log("OmniTranscribe enhanced features loaded. Press ? for keyboard shortcuts.");
