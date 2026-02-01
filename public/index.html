@@ -334,34 +334,24 @@
           </button>
         </div>
       </div>
-      <!-- Cursor info display -->
-      <div class="waveform-cursor-info" id="waveform-cursor-info">
-        <span class="cursor-time" id="cursor-time">--:--</span>
-        <span class="cursor-freq" id="cursor-freq">-- Hz</span>
-      </div>
-      <!-- Split view container -->
-      <div class="waveform-split-container" id="waveform-split-container">
-        <!-- Top pane (waveform in split mode) -->
-        <div class="waveform-pane waveform-pane-top" id="waveform-pane-top">
-          <canvas id="waveform-canvas"></canvas>
-          <div class="waveform-playhead waveform-playhead-top" id="waveform-playhead-top"></div>
-        </div>
-        <!-- Bottom pane (spectrogram in split mode, or single pane) -->
-        <div class="waveform-pane waveform-pane-bottom" id="waveform-pane-bottom">
-          <canvas id="spectrogram-canvas"></canvas>
-          <canvas id="pitch-canvas"></canvas>
-          <div class="waveform-playhead" id="waveform-playhead"></div>
-        </div>
-      </div>
-      <!-- Overlays (shared across views) -->
-      <div class="waveform-overlays" id="waveform-overlays">
-        <div class="waveform-selection" id="waveform-selection"></div>
-        <div class="waveform-words" id="waveform-words"></div>
+      <!-- Canvas container with all layers -->
+      <div class="waveform-canvas-container" id="waveform-split-container">
+        <!-- Canvases -->
+        <canvas id="waveform-canvas"></canvas>
+        <canvas id="spectrogram-canvas"></canvas>
+        <canvas id="pitch-canvas"></canvas>
+        <!-- Overlays on top of canvases -->
         <div class="waveform-segments" id="waveform-segments"></div>
+        <div class="waveform-words" id="waveform-words"></div>
+        <div class="waveform-selection" id="waveform-selection"></div>
+        <div class="waveform-playhead" id="waveform-playhead"></div>
         <div class="waveform-time-ruler" id="waveform-time-ruler"></div>
+        <!-- Cursor info display -->
+        <div class="waveform-cursor-info" id="waveform-cursor-info">
+          <span class="cursor-time" id="cursor-time">--:--</span>
+          <span class="cursor-freq" id="cursor-freq">-- Hz</span>
+        </div>
       </div>
-      <!-- Frequency axis for spectrogram -->
-      <div class="waveform-freq-axis" id="waveform-freq-axis"></div>
     </div>
 
     <!-- IPA Character Picker -->
