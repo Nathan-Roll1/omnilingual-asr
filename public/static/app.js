@@ -2087,62 +2087,241 @@ function drawWaveform() {
   }
 }
 
-let spectrogramDataArray = new Uint8Array(2048);
+// Simple FFT implementation for static spectrogram
+const FFT = {
+  // Cooley-Tukey radix-2
+  fft: function(real, imag) {
+    const n = real.length;
+    if (n <= 1) return;
 
-function drawSpectrogram() {
-  if (!spectrogramCtx || !analyser) return;
+    const half = n / 2;
+    const evenReal = new Float32Array(half);
+    const evenImag = new Float32Array(half);
+    const oddReal = new Float32Array(half);
+    const oddImag = new Float32Array(half);
 
-  const canvas = spectrogramCanvas;
-  const width = canvas.width;
-  const height = canvas.height;
-  if (width <= 0 || height <= 0) return;
-
-  if (spectrogramDataArray.length !== analyser.frequencyBinCount) {
-    spectrogramDataArray = new Uint8Array(analyser.frequencyBinCount);
-  }
-  analyser.getByteFrequencyData(spectrogramDataArray);
-
-  // Shift existing content left by 1 device pixel
-  if (width > 1) {
-    spectrogramCtx.drawImage(
-      canvas,
-      1,
-      0,
-      width - 1,
-      height,
-      0,
-      0,
-      width - 1,
-      height
-    );
-  }
-
-  // Draw new column on the right
-  const bufferLength = analyser.frequencyBinCount;
-  for (let y = 0; y < height; y++) {
-    const freqIndex = Math.floor((1 - y / height) * bufferLength);
-    const value = spectrogramDataArray[freqIndex] || 0;
-    const normalized = value / 255;
-
-    // Color mapping
-    let r, g, b;
-    if (normalized < 0.2) {
-      r = g = b = Math.floor(normalized * 5 * 30);
-    } else if (normalized < 0.5) {
-      const t = (normalized - 0.2) / 0.3;
-      r = Math.floor(140 * t);
-      g = Math.floor(21 * t);
-      b = Math.floor(21 * t);
-    } else {
-      const t = (normalized - 0.5) / 0.5;
-      r = 140 + Math.floor(115 * t);
-      g = 21 + Math.floor(79 * t);
-      b = 21 + Math.floor(79 * t);
+    for (let i = 0; i < half; i++) {
+      evenReal[i] = real[2 * i];
+      evenImag[i] = imag[2 * i];
+      oddReal[i] = real[2 * i + 1];
+      oddImag[i] = imag[2 * i + 1];
     }
 
-    spectrogramCtx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-    spectrogramCtx.fillRect(width - 1, y, 1, 1);
+    this.fft(evenReal, evenImag);
+    this.fft(oddReal, oddImag);
+
+    for (let k = 0; k < half; k++) {
+      const angle = -2 * Math.PI * k / n;
+      const wReal = Math.cos(angle);
+      const wImag = Math.sin(angle);
+      
+      const tReal = wReal * oddReal[k] - wImag * oddImag[k];
+      const tImag = wReal * oddImag[k] + wImag * oddReal[k];
+      
+      real[k] = evenReal[k] + tReal;
+      imag[k] = evenImag[k] + tImag;
+      real[k + half] = evenReal[k] - tReal;
+      imag[k + half] = evenImag[k] - tImag;
+    }
+  },
+
+  // Compute magnitude spectrum from time domain data
+  computeSpectrum: function(timeData, windowSize) {
+    const n = windowSize;
+    const real = new Float32Array(n);
+    const imag = new Float32Array(n);
+    
+    // Apply Hanning window
+    for (let i = 0; i < n; i++) {
+      const window = 0.5 * (1 - Math.cos(2 * Math.PI * i / (n - 1)));
+      real[i] = (timeData[i] || 0) * window;
+    }
+    
+    this.fft(real, imag);
+    
+    // Compute magnitude (only first half is needed)
+    const spectrum = new Float32Array(n / 2);
+    for (let i = 0; i < n / 2; i++) {
+      spectrum[i] = Math.sqrt(real[i] * real[i] + imag[i] * imag[i]);
+    }
+    
+    return spectrum;
   }
+};
+
+async function computeSpectrogram() {
+  if (!audioEl.duration || !spectrogramCtx) return;
+  
+  // Ensure we have audio buffer
+  if (!audioBufferCache) {
+    if (audioEl.src) {
+      try {
+        const response = await fetch(audioEl.src);
+        const arrayBuffer = await response.arrayBuffer();
+        const tempContext = new (window.AudioContext || window.webkitAudioContext)();
+        audioBufferCache = await tempContext.decodeAudioData(arrayBuffer);
+        tempContext.close();
+      } catch (e) {
+        console.warn("Failed to decode audio for spectrogram", e);
+        return;
+      }
+    } else {
+      return;
+    }
+  }
+
+  const canvas = spectrogramCanvas;
+  const width = canvas.width; // Actual pixel width (dpr adjusted)
+  const height = canvas.height;
+  
+  // Clear canvas
+  spectrogramCtx.fillStyle = "#000";
+  spectrogramCtx.fillRect(0, 0, width, height);
+
+  const channelData = audioBufferCache.getChannelData(0);
+  const sampleRate = audioBufferCache.sampleRate;
+  const totalSamples = channelData.length;
+  
+  // FFT parameters
+  const fftSize = 512; // Lower resolution for speed, but acceptable for visual
+  const frequencyBinCount = fftSize / 2;
+  
+  // Calculate visible range
+  let startSample = 0;
+  let endSample = totalSamples;
+  
+  if (waveformZoom > 1 && waveformData) {
+    const totalWaveformPoints = waveformData.length;
+    // Map scroll offset to samples
+    startSample = Math.floor((waveformScrollOffset / totalWaveformPoints) * totalSamples);
+    const visibleRatio = (canvas.width / (window.devicePixelRatio || 1)) / totalWaveformPoints;
+    // Fix: use the actual canvas width logic from drawWaveform
+    // Actually, let's use time-based calculation to be consistent
+    const duration = audioEl.duration;
+    const visibleStartTime = (waveformScrollOffset / totalWaveformPoints) * duration;
+    const visibleDuration = ((canvas.width / (window.devicePixelRatio || 1)) / totalWaveformPoints) * duration;
+    
+    startSample = Math.floor(visibleStartTime * sampleRate);
+    endSample = Math.floor((visibleStartTime + visibleDuration) * sampleRate);
+  }
+  
+  // Clamp
+  startSample = Math.max(0, startSample);
+  endSample = Math.min(totalSamples, endSample);
+  
+  const samplesPerPixel = (endSample - startSample) / width;
+  
+  // Offscreen rendering for performance
+  const imageData = spectrogramCtx.createImageData(width, height);
+  const data = imageData.data;
+  
+  // Generate spectrogram columns
+  // We skip pixels to keep it fast if needed, but 1px resolution is best
+  for (let x = 0; x < width; x++) {
+    const centerSample = Math.floor(startSample + x * samplesPerPixel);
+    
+    // Extract window
+    const windowStart = centerSample - fftSize / 2;
+    const timeSlice = new Float32Array(fftSize);
+    
+    for (let i = 0; i < fftSize; i++) {
+      const idx = windowStart + i;
+      if (idx >= 0 && idx < totalSamples) {
+        timeSlice[i] = channelData[idx];
+      }
+    }
+    
+    const spectrum = FFT.computeSpectrum(timeSlice, fftSize);
+    
+    // Map spectrum to pixels (y-axis)
+    // Logarithmic frequency scale looks better usually, but linear is standard for simple views
+    // Let's do linear for simplicity first, or simple log mapping
+    
+    for (let y = 0; y < height; y++) {
+      // Linear freq mapping: 0 to Nyquist
+      // Flip y (0 is top)
+      const freqIndex = Math.floor((1 - y / height) * frequencyBinCount);
+      const magnitude = spectrum[freqIndex] || 0;
+      
+      // Log magnitude for visibility
+      const intensity = Math.log10(magnitude * 100 + 1) * 60; // Scaling factor
+      const normalized = Math.min(1, Math.max(0, intensity / 100));
+      
+      // Heatmap colors
+      let r, g, b;
+      if (normalized < 0.2) {
+        r = 0; g = 0; b = Math.floor(normalized * 5 * 255);
+      } else if (normalized < 0.5) {
+        const t = (normalized - 0.2) / 0.3;
+        r = Math.floor(180 * t);
+        g = Math.floor(30 * t);
+        b = Math.floor(30 * t);
+      } else {
+        const t = (normalized - 0.5) / 0.5;
+        r = 180 + Math.floor(75 * t);
+        g = 30 + Math.floor(225 * t);
+        b = 30; // Yellowish
+      }
+      
+      const pixelIndex = (y * width + x) * 4;
+      data[pixelIndex] = r;
+      data[pixelIndex + 1] = g;
+      data[pixelIndex + 2] = b;
+      data[pixelIndex + 3] = 255;
+    }
+  }
+  
+  spectrogramCtx.putImageData(imageData, 0, 0);
+}
+
+// Replaces the real-time drawSpectrogram
+function drawSpectrogram() {
+  // No-op for loop, handled by computeSpectrogram
+}
+
+// Hook into visualization loop
+function startVisualization() {
+  if (animationFrameId) return;
+  
+  function animate() {
+    // Only update playhead in loop
+    updatePlayhead();
+    
+    // If waveform view, we might need to redraw if scrolling/playing?
+    // Actually drawWaveform handles scrolling internally if we call it
+    if (currentWaveformView === "waveform") {
+      drawWaveform();
+    }
+    // Spectrogram is static, so we don't redraw it in loop unless scrolling
+    // If playing and zoomed, we need to recompute spectrogram as it scrolls?
+    // That would be slow. 
+    // Better: If zoomed and playing, maybe just move the playhead?
+    // But if playhead goes off screen, we must scroll.
+    // If we scroll, we must recompute.
+    // For now, let's recompute if scroll offset changes significantly?
+    // Or just rely on the fact that drawWaveform updates scroll offset.
+    
+    if (currentWaveformView === "spectrogram" && waveformZoom > 1 && audioEl.duration && !audioEl.paused) {
+       // Check if we need to scroll
+       const totalWidth = waveformData ? waveformData.length : 0;
+       const playheadPosition = (audioEl.currentTime / audioEl.duration) * totalWidth;
+       const canvasWidth = waveformCanvas.width / (window.devicePixelRatio || 1);
+       
+       // Simple auto-scroll logic matching drawWaveform
+       const targetOffset = Math.max(0, Math.min(playheadPosition - canvasWidth / 2, totalWidth - canvasWidth));
+       
+       if (Math.abs(targetOffset - waveformScrollOffset) > 1) {
+         waveformScrollOffset = targetOffset;
+         // Debounce spectrogram update or it will lag
+         // For now, let's try updating it. It might be 10-20ms, which is 50fps.
+         computeSpectrogram();
+       }
+    }
+    
+    animationFrameId = requestAnimationFrame(animate);
+  }
+  
+  animate();
 }
 
 function updatePlayhead() {
@@ -2342,12 +2521,25 @@ function startVisualization() {
   if (animationFrameId) return;
   
   function animate() {
+    updatePlayhead();
+    
     if (currentWaveformView === "waveform") {
       drawWaveform();
-    } else {
-      drawSpectrogram();
+    } else if (currentWaveformView === "spectrogram" && waveformZoom > 1 && audioEl.duration && !audioEl.paused) {
+       // Auto-scroll spectrogram when zoomed and playing
+       const totalWidth = waveformData ? waveformData.length : 0;
+       const playheadPosition = (audioEl.currentTime / audioEl.duration) * totalWidth;
+       const canvasWidth = waveformCanvas.width / (window.devicePixelRatio || 1);
+       
+       const targetOffset = Math.max(0, Math.min(playheadPosition - canvasWidth / 2, totalWidth - canvasWidth));
+       
+       // Only redraw if scroll changed significantly to avoid thrashing
+       if (Math.abs(targetOffset - waveformScrollOffset) > 5) {
+         waveformScrollOffset = targetOffset;
+         computeSpectrogram();
+       }
     }
-    updatePlayhead();
+    
     animationFrameId = requestAnimationFrame(animate);
   }
   
@@ -2390,7 +2582,8 @@ if (tabSpectrogram) {
     waveformCanvas.classList.add("hidden");
     ensureAudioSource();
     // Clear and start fresh
-    spectrogramCtx.clearRect(0, 0, spectrogramCanvas.width, spectrogramCanvas.height);
+    // spectrogramCtx.clearRect(0, 0, spectrogramCanvas.width, spectrogramCanvas.height);
+    computeSpectrogram();
   });
 }
 
@@ -2400,6 +2593,7 @@ if (zoomInBtn) {
     computeWaveformData().then(() => {
       updateTimeRuler();
       renderSegmentsOnWaveform();
+      if (currentWaveformView === "spectrogram") computeSpectrogram();
     });
   });
 }
@@ -2411,6 +2605,7 @@ if (zoomOutBtn) {
     computeWaveformData().then(() => {
       updateTimeRuler();
       renderSegmentsOnWaveform();
+      if (currentWaveformView === "spectrogram") computeSpectrogram();
     });
   });
 }
@@ -2835,7 +3030,9 @@ audioEl.addEventListener("timeupdate", () => {
 audioEl.addEventListener("loadedmetadata", () => {
   if (isWaveformVisible) {
     ensureAudioSource();
-    computeWaveformData();
+    computeWaveformData().then(() => {
+      if (currentWaveformView === "spectrogram") computeSpectrogram();
+    });
     updateTimeRuler();
     renderSegmentsOnWaveform();
   }
@@ -2872,7 +3069,9 @@ window.renderBoxTranscript = function(data) {
 window.addEventListener("resize", () => {
   if (isWaveformVisible) {
     resizeWaveformCanvas();
-    computeWaveformData();
+    computeWaveformData().then(() => {
+      if (currentWaveformView === "spectrogram") computeSpectrogram();
+    });
     updateTimeRuler();
     renderSegmentsOnWaveform();
   }
