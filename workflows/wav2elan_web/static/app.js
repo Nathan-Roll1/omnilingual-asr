@@ -69,6 +69,10 @@ let stopAtTime = null;
 let stopTimeout = null;
 let uploadPlaceholders = [];
 
+// Audio blob storage - keeps audio in browser memory for playback
+// Maps transcript ID -> Blob URL
+const audioBlobCache = new Map();
+
 uploadZone.addEventListener("dragover", (e) => {
   e.preventDefault();
   uploadZone.classList.add("drag-over");
@@ -585,7 +589,14 @@ function getHighlightColor(segment, segIdx, speakerMap) {
 function getChunkTooltip(segment, segIdx) {
   const parts = [`#${segIdx + 1}`];
   if (segment.speaker) parts.push(segment.speaker);
-  if (segment.language_code || segment.language) {
+  if (segment.languages && Array.isArray(segment.languages) && segment.languages.length > 0) {
+    const langs = segment.languages
+      .map((lang) => lang.code || lang.name)
+      .filter(Boolean);
+    if (langs.length > 0) {
+      parts.push(langs.join(", "));
+    }
+  } else if (segment.language_code || segment.language) {
     parts.push(segment.language_code || segment.language);
   }
   if (segment.emotion) parts.push(segment.emotion);
@@ -1509,9 +1520,19 @@ async function selectHistory(id) {
 
 function activateTranscript(data) {
   activeData = data;
-  activeAudioUrl = data.audio_url;
-  audioEl.src = activeAudioUrl;
-  playerBar.classList.add("visible");
+  
+  // Try to get audio URL: prefer blob cache, fall back to server URL
+  const blobUrl = audioBlobCache.get(data.id);
+  activeAudioUrl = blobUrl || data.audio_url;
+  
+  if (activeAudioUrl) {
+    audioEl.src = activeAudioUrl;
+    playerBar.classList.add("visible");
+  } else {
+    // No audio available - hide player or show disabled state
+    audioEl.src = "";
+    playerBar.classList.remove("visible");
+  }
   
   // Show canvas header with file info
   canvasHeader.classList.remove("hidden");
@@ -1538,6 +1559,12 @@ async function updateHistory(id, payload) {
 
 async function deleteHistory(id) {
   await fetch(`/api/history/${id}`, { method: "DELETE" });
+  // Clean up blob URL if exists
+  const blobUrl = audioBlobCache.get(id);
+  if (blobUrl) {
+    URL.revokeObjectURL(blobUrl);
+    audioBlobCache.delete(id);
+  }
 }
 
 function openInlineEditor(wordEl) {
@@ -1640,13 +1667,23 @@ async function uploadFiles(files, options = {}) {
   // Don't clear current transcript - just add new canvas to history
   // The user can switch back to the current one via history
   
-  uploadPlaceholders = files.map((file) => ({
-    id: `upload-${crypto.randomUUID()}`,
-    file_name: file.name,
-    created_at: new Date().toISOString(),
-    loading: true,
-    loadingText: "Queued…",
-  }));
+  // Create blob URLs for audio playback (store in memory)
+  // Maps placeholder ID -> { file, blobUrl }
+  const pendingAudioBlobs = new Map();
+  
+  uploadPlaceholders = files.map((file) => {
+    const placeholderId = `upload-${crypto.randomUUID()}`;
+    // Create blob URL for audio playback
+    const blobUrl = URL.createObjectURL(file);
+    pendingAudioBlobs.set(file.name, blobUrl);
+    return {
+      id: placeholderId,
+      file_name: file.name,
+      created_at: new Date().toISOString(),
+      loading: true,
+      loadingText: "Queued…",
+    };
+  });
   historyItems = [...uploadPlaceholders, ...historyItems];
   renderHistoryList();
 
@@ -1721,6 +1758,11 @@ async function uploadFiles(files, options = {}) {
         historyItems = historyItems.filter((h) => !h.loading);
         resultData.results.forEach((item) => {
           historyCache.set(item.id, item);
+          // Transfer blob URL from pending to permanent cache
+          const blobUrl = pendingAudioBlobs.get(item.file_name);
+          if (blobUrl) {
+            audioBlobCache.set(item.id, blobUrl);
+          }
         });
         historyItems = [...resultData.results, ...historyItems];
         renderHistoryList();
@@ -1730,6 +1772,11 @@ async function uploadFiles(files, options = {}) {
       } else {
         historyItems = historyItems.filter((h) => !h.loading);
         historyCache.set(resultData.id, resultData);
+        // Transfer blob URL from pending to permanent cache
+        const blobUrl = pendingAudioBlobs.get(resultData.file_name);
+        if (blobUrl) {
+          audioBlobCache.set(resultData.id, blobUrl);
+        }
         historyItems = [resultData, ...historyItems];
         renderHistoryList();
         selectHistory(resultData.id);
@@ -1740,6 +1787,8 @@ async function uploadFiles(files, options = {}) {
     hideProgress();
     showStatus(err.message, true);
     historyItems = historyItems.filter((h) => !h.loading);
+    // Clean up pending blob URLs on error
+    pendingAudioBlobs.forEach((url) => URL.revokeObjectURL(url));
     renderHistoryList();
     uploadPlaceholders = [];
   }
