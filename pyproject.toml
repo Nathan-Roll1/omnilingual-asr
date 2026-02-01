@@ -5,20 +5,18 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "omnilingual_asr"
 dynamic = ["version"]
-description = "Omnilingual ASR Modeling Library"
+description = "Omnilingual ASR - Speech transcription using Gemini API"
 authors = [{name = "Meta AI Research"}]
 readme = "README.md"
 license = {file = "LICENSE"}
 keywords = [
     "speech recognition", "ASR", "automatic speech recognition",
-    "multilingual", "omnilingual", "zero-shot", "few-shot",
-    "speech-to-text", "audio processing", "wav2vec2", "fairseq2",
-    "language models", "speech technology",  "CTC",
-    "transformer models", "beam search",
+    "multilingual", "omnilingual", "transcription",
+    "speech-to-text", "audio processing", "gemini",
+    "diarization", "speaker identification",
     "audio transcription", "voice recognition"
 ]
 
-# zip_safe = false
 classifiers=[
     "Topic :: Scientific/Engineering",
     "Development Status :: 4 - Beta",
@@ -26,34 +24,11 @@ classifiers=[
 
 requires-python = ">=3.10,<3.14"
 dependencies = [
-    "fairseq2[arrow]>=0.5.2,<=0.6.0",
-    "pyarrow>=20.0.0",
-    "torch",
-    "torchaudio",
-    "numba",
-    "pandas",
-    "numpy",
-    "kenlm",
-    "polars>=1.29.0",
+    "google-genai>=1.0.0",
+    "pydantic>=2.0.0",
 ]
 
 [project.optional-dependencies]
-  data = [
-    "fire",
-    "transformers",
-    "datasets~=3.6.0",
-    "ray>=2.49.0",
-    "soundfile>=0.13.1",
-    "librosa>=0.11.0",
-    "unidecode",
-    "uroman",
-    "fire",
-    "retrying",
-  ]
-  diarization = [
-    "pyannote.audio>=3.1.1",
-    "pyannote.core>=5.0.0",
-  ]
   web = [
     "fastapi>=0.115.0",
     "uvicorn>=0.30.0",
@@ -67,19 +42,8 @@ dependencies = [
     "flake8-pyproject~=1.2",
     "isort~=6.0",
     "mypy~=1.15.0",
-    "pandas-stubs~=2.2.3",
-    "pyarrow-stubs~=20.0",
     "pytest~=8.3",
-    "shellcheck-py~=0.9",
-    "types-tqdm~=4.67.0",
-    "types-editdistance~=0.6",
-    "types-psutil~=5.9",
-    "types-setuptools~=75.8",
   ]
-
-[project.entry-points."fairseq2.extension"]
-setup = "omnilingual_asr:setup_fairseq2_extension"
-
 
 [project.urls]
   Source = "https://github.com/facebookresearch/omnilingual-asr"
@@ -90,8 +54,6 @@ version = {attr = "omnilingual_asr.__version__"}
 
 [tool.setuptools.package-data]
 "omnilingual_asr" = ["py.typed"]
-"omnilingual_asr.cards" = ["**/*.yaml"]
-"omnilingual_asr.models.wav2vec2_llama" = ["*.parquet"]
 
 [tool.flake8]
 extend_ignore = ["E", "Y"]  # Black

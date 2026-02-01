@@ -4,6 +4,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+"""Omnilingual ASR models."""
+
 from omnilingual_asr.models import inference as inference
 
 __all__ = [

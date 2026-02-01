@@ -48,12 +48,39 @@
             <h2>Transcript Dashboard</h2>
             <p>Click a word to play and edit text or timestamps.</p>
           </div>
-          <button class="btn-secondary" id="download-eaf">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            Export ELAN
-          </button>
+          <div class="export-dropdown" id="export-dropdown">
+            <button class="btn-secondary" id="export-btn">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              Export
+              <svg class="dropdown-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+            <div class="export-menu hidden" id="export-menu">
+              <button class="export-option" data-format="eaf">
+                <span class="export-format">EAF</span>
+                <span class="export-desc">ELAN Annotation Format</span>
+              </button>
+              <button class="export-option" data-format="textgrid">
+                <span class="export-format">TextGrid</span>
+                <span class="export-desc">Praat TextGrid</span>
+              </button>
+              <button class="export-option" data-format="txt">
+                <span class="export-format">TXT</span>
+                <span class="export-desc">Plain text transcript</span>
+              </button>
+              <button class="export-option" data-format="srt">
+                <span class="export-format">SRT</span>
+                <span class="export-desc">Subtitles format</span>
+              </button>
+              <button class="export-option" data-format="json">
+                <span class="export-format">JSON</span>
+                <span class="export-desc">Raw transcript data</span>
+              </button>
+            </div>
+          </div>
         </header>
 
         <section class="drop-zone" id="upload-zone">
@@ -80,7 +107,7 @@
                 </svg>
                 <span class="step-number">1</span>
               </div>
-              <span class="step-label">Loading</span>
+              <span class="step-label">Uploading</span>
             </div>
             <div class="progress-connector"></div>
             <div class="progress-step" data-step="1">
@@ -90,7 +117,7 @@
                 </svg>
                 <span class="step-number">2</span>
               </div>
-              <span class="step-label">Diarizing</span>
+              <span class="step-label">Transcribing</span>
             </div>
             <div class="progress-connector"></div>
             <div class="progress-step" data-step="2">
@@ -100,7 +127,7 @@
                 </svg>
                 <span class="step-number">3</span>
               </div>
-              <span class="step-label">Transcribing</span>
+              <span class="step-label">Processing</span>
             </div>
             <div class="progress-connector"></div>
             <div class="progress-step" data-step="3">
@@ -110,7 +137,7 @@
                 </svg>
                 <span class="step-number">4</span>
               </div>
-              <span class="step-label">Aligning</span>
+              <span class="step-label">Complete</span>
             </div>
           </div>
           <div class="progress-bar-track">
@@ -124,8 +151,111 @@
           <span class="status-text"></span>
         </section>
 
+        <!-- Canvas header (shows current file) -->
+        <section class="canvas-header hidden" id="canvas-header">
+          <div class="canvas-info">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 18V5l12-2v13" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="6" cy="18" r="3"/>
+              <circle cx="18" cy="16" r="3"/>
+            </svg>
+            <span class="canvas-name" id="canvas-name"></span>
+          </div>
+          <div class="canvas-meta" id="canvas-meta"></div>
+        </section>
+
+        <!-- Summary section (shown when available) -->
+        <section class="transcript-summary hidden" id="transcript-summary">
+          <div class="summary-header">
+            <h3>Summary</h3>
+            <div class="summary-badges">
+              <div class="badge-group" id="language-badges"></div>
+              <div class="badge-group" id="speaker-badges"></div>
+              <div class="badge-group" id="emotion-badges"></div>
+            </div>
+          </div>
+          <div class="summary-content" id="summary-content"></div>
+        </section>
+
+        <!-- View controls -->
+        <section class="view-controls hidden" id="view-controls">
+          <div class="view-toggle">
+            <button class="view-btn active" data-view="flow" title="Flow view">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 6h16M4 12h16M4 18h10" stroke-linecap="round"/>
+              </svg>
+              Flow
+            </button>
+            <button class="view-btn" data-view="box" title="Box view">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="7" height="7" rx="1"/>
+                <rect x="14" y="3" width="7" height="7" rx="1"/>
+                <rect x="3" y="14" width="7" height="7" rx="1"/>
+                <rect x="14" y="14" width="7" height="7" rx="1"/>
+              </svg>
+              Boxes
+            </button>
+          </div>
+          <div class="highlight-selector">
+            <label>Highlight by:</label>
+            <select id="highlight-mode">
+              <option value="chunk">Chunk</option>
+              <option value="speaker">Speaker</option>
+              <option value="language">Language</option>
+              <option value="emotion">Emotion</option>
+            </select>
+          </div>
+        </section>
+
         <section class="transcript" id="transcript"></section>
       </main>
+    </div>
+
+    <!-- Upload Options Modal -->
+    <div class="modal-overlay hidden" id="upload-modal">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>Transcription Options</h3>
+          <button class="modal-close" id="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="language-select">Language (optional)</label>
+            <select id="language-select">
+              <option value="">Auto-detect</option>
+              <option value="en">English</option>
+              <option value="es">Spanish</option>
+              <option value="fr">French</option>
+              <option value="de">German</option>
+              <option value="it">Italian</option>
+              <option value="pt">Portuguese</option>
+              <option value="ru">Russian</option>
+              <option value="zh">Chinese</option>
+              <option value="ja">Japanese</option>
+              <option value="ko">Korean</option>
+              <option value="ar">Arabic</option>
+              <option value="hi">Hindi</option>
+              <option value="other">Other (specify in audio)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="speaker-count">Number of Speakers (optional)</label>
+            <select id="speaker-count">
+              <option value="">Auto-detect</option>
+              <option value="1">1 speaker</option>
+              <option value="2">2 speakers</option>
+              <option value="3">3 speakers</option>
+              <option value="4">4 speakers</option>
+              <option value="5">5 speakers</option>
+              <option value="6+">6 or more speakers</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" id="modal-cancel">Cancel</button>
+          <button class="btn-primary" id="modal-confirm">Start Transcription</button>
+        </div>
+      </div>
     </div>
 
     <footer class="player-bar" id="player-bar">

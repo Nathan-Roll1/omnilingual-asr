@@ -3,17 +3,27 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 import json
+import os
+import sys
 import uuid
 import zipfile
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, FastAPI, File, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 
-from omnilingual_asr.diarization import DiarizedTranscriptionPipeline
+# Add source directory to path for imports
+_SRC_DIR = Path(__file__).resolve().parent.parent.parent / "src"
+sys.path.insert(0, str(_SRC_DIR))
+
+# Import Gemini pipeline (the only supported pipeline now)
+from omnilingual_asr.diarization import (
+    GeminiDiarizedTranscriptionPipeline,
+    DiarizedTranscriptSegment,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
@@ -25,15 +35,22 @@ app = FastAPI(title="Wav2ELAN")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
-_pipeline: DiarizedTranscriptionPipeline | None = None
+_pipeline: GeminiDiarizedTranscriptionPipeline | None = None
 HISTORY: dict[str, dict[str, Any]] = {}
 HISTORY_ORDER: list[str] = []
 
 
-def _get_pipeline() -> DiarizedTranscriptionPipeline:
+def _get_pipeline() -> GeminiDiarizedTranscriptionPipeline:
+    """Get the Gemini transcription pipeline (singleton)."""
     global _pipeline
     if _pipeline is None:
-        _pipeline = DiarizedTranscriptionPipeline()
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "GEMINI_API_KEY environment variable not set. "
+                "Get your API key from https://aistudio.google.com/apikey"
+            )
+        _pipeline = GeminiDiarizedTranscriptionPipeline(api_key=api_key)
     return _pipeline
 
 
@@ -91,14 +108,18 @@ def _save_upload(file: UploadFile, dest_dir: Path) -> tuple[Path, str]:
     return output_path, file.filename
 
 
-def _run_transcription(audio_path: Path) -> list[dict[str, Any]]:
+def _run_transcription(audio_path: Path) -> dict[str, Any]:
+    """Run transcription and return result with segments and metadata."""
     pipeline = _get_pipeline()
     segments = pipeline.transcribe(
         str(audio_path),
         word_timestamps=True,
     )
-    return [
-        {
+
+    # Build segment list with all available fields
+    segment_list = []
+    for seg in segments:
+        segment_dict: dict[str, Any] = {
             "start": seg.start,
             "end": seg.end,
             "speaker": seg.speaker,
@@ -108,8 +129,29 @@ def _run_transcription(audio_path: Path) -> list[dict[str, Any]]:
                 for w in (seg.words or [])
             ],
         }
-        for seg in segments
-    ]
+        # Add Gemini-specific fields if available
+        if hasattr(seg, "language") and seg.language:
+            segment_dict["language"] = seg.language
+        if hasattr(seg, "language_code") and seg.language_code:
+            segment_dict["language_code"] = seg.language_code
+        if hasattr(seg, "languages") and seg.languages:
+            segment_dict["languages"] = seg.languages
+        if hasattr(seg, "emotion") and seg.emotion:
+            segment_dict["emotion"] = seg.emotion
+        if hasattr(seg, "translation") and seg.translation:
+            segment_dict["translation"] = seg.translation
+        segment_list.append(segment_dict)
+
+    # Build result with optional summary and detected languages
+    result: dict[str, Any] = {"segments": segment_list}
+
+    # Add Gemini metadata
+    if pipeline.summary:
+        result["summary"] = pipeline.summary
+    if pipeline.detected_languages:
+        result["detected_languages"] = pipeline.detected_languages
+
+    return result
 
 
 @app.post("/api/transcribe")
@@ -120,18 +162,23 @@ async def transcribe(file: UploadFile = File(...)) -> JSONResponse:
     if output_path.suffix.lower() == ".zip":
         raise HTTPException(status_code=400, detail="Use batch endpoint for zip uploads.")
 
+    result = _run_transcription(output_path)
     entry = _store_history(
         {
             "audio_url": f"/uploads/{output_path.name}",
             "file_name": display_name,
-            "segments": _run_transcription(output_path),
+            **result,  # Includes segments, summary, detected_languages
         }
     )
     return JSONResponse(entry)
 
 
 @app.post("/api/transcribe-stream")
-async def transcribe_stream(file: UploadFile = File(...)) -> EventSourceResponse:
+async def transcribe_stream(
+    file: UploadFile = File(...),
+    language: str | None = Form(None),
+    speaker_count: str | None = Form(None),
+) -> EventSourceResponse:
     """Streaming endpoint that reports progress via SSE."""
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     output_path, display_name = _save_upload(file, UPLOAD_DIR)
@@ -153,6 +200,8 @@ async def transcribe_stream(file: UploadFile = File(...)) -> EventSourceResponse
                     str(output_path),
                     word_timestamps=True,
                     progress_callback=progress_callback,
+                    language=language,
+                    speaker_count=speaker_count,
                 ),
             )
 
@@ -176,32 +225,58 @@ async def transcribe_stream(file: UploadFile = File(...)) -> EventSourceResponse
             }
 
         segments = await task
-        entry = _store_history(
-            {
-                "audio_url": f"/uploads/{output_path.name}",
-                "file_name": display_name,
-                "segments": [
-                    {
-                        "start": seg.start,
-                        "end": seg.end,
-                        "speaker": seg.speaker,
-                        "text": seg.text,
-                        "words": [
-                            {"word": w.word, "start": w.start, "end": w.end}
-                            for w in (seg.words or [])
-                        ],
-                    }
-                    for seg in segments
+        pipeline = _get_pipeline()
+
+        # Build segment list with all available fields
+        segment_list = []
+        for seg in segments:
+            segment_dict: dict[str, Any] = {
+                "start": seg.start,
+                "end": seg.end,
+                "speaker": seg.speaker,
+                "text": seg.text,
+                "words": [
+                    {"word": w.word, "start": w.start, "end": w.end}
+                    for w in (seg.words or [])
                 ],
             }
-        )
+            # Add Gemini-specific fields if available
+            if hasattr(seg, "language") and seg.language:
+                segment_dict["language"] = seg.language
+            if hasattr(seg, "language_code") and seg.language_code:
+                segment_dict["language_code"] = seg.language_code
+            if hasattr(seg, "languages") and seg.languages:
+                segment_dict["languages"] = seg.languages
+            if hasattr(seg, "emotion") and seg.emotion:
+                segment_dict["emotion"] = seg.emotion
+            if hasattr(seg, "translation") and seg.translation:
+                segment_dict["translation"] = seg.translation
+            segment_list.append(segment_dict)
+
+        entry_data: dict[str, Any] = {
+            "audio_url": f"/uploads/{output_path.name}",
+            "file_name": display_name,
+            "segments": segment_list,
+        }
+
+        # Add Gemini metadata
+        if pipeline.summary:
+            entry_data["summary"] = pipeline.summary
+        if pipeline.detected_languages:
+            entry_data["detected_languages"] = pipeline.detected_languages
+
+        entry = _store_history(entry_data)
         yield {"event": "result", "data": json.dumps(entry)}
 
     return EventSourceResponse(event_generator())
 
 
 @app.post("/api/transcribe-batch-stream")
-async def transcribe_batch_stream(files: list[UploadFile] = File(...)) -> EventSourceResponse:
+async def transcribe_batch_stream(
+    files: list[UploadFile] = File(...),
+    language: str | None = Form(None),
+    speaker_count: str | None = Form(None),
+) -> EventSourceResponse:
     """Streaming endpoint for multiple files/folders/zip."""
     if not files:
         raise HTTPException(status_code=400, detail="No files uploaded.")
@@ -238,45 +313,90 @@ async def transcribe_batch_stream(files: list[UploadFile] = File(...)) -> EventS
                 },
             )
 
-        async def run_transcription() -> list[dict[str, Any]]:
+        async def transcribe_single_file(
+            i: int,
+            audio_path: Path,
+            display_name: str,
+            file_count: int,
+        ) -> dict[str, Any]:
+            """Transcribe a single file - can be run in parallel."""
             pipeline = _get_pipeline()
-            results: list[dict[str, Any]] = []
+            file_name = display_name
+
+            def cb(step: str, idx: int) -> None:
+                progress_callback(step, idx, i, file_count, file_name)
+
+            segments = await loop.run_in_executor(
+                None,
+                lambda p=pipeline, ap=str(audio_path): p.transcribe(
+                    ap,
+                    word_timestamps=True,
+                    progress_callback=cb,
+                    language=language,
+                    speaker_count=speaker_count,
+                ),
+            )
+
+            # Build segment list with all available fields
+            segment_list = []
+            for seg in segments:
+                segment_dict: dict[str, Any] = {
+                    "start": seg.start,
+                    "end": seg.end,
+                    "speaker": seg.speaker,
+                    "text": seg.text,
+                    "words": [
+                        {"word": w.word, "start": w.start, "end": w.end}
+                        for w in (seg.words or [])
+                    ],
+                }
+                # Add Gemini-specific fields if available
+                if hasattr(seg, "language") and seg.language:
+                    segment_dict["language"] = seg.language
+                if hasattr(seg, "language_code") and seg.language_code:
+                    segment_dict["language_code"] = seg.language_code
+                if hasattr(seg, "languages") and seg.languages:
+                    segment_dict["languages"] = seg.languages
+                if hasattr(seg, "emotion") and seg.emotion:
+                    segment_dict["emotion"] = seg.emotion
+                if hasattr(seg, "translation") and seg.translation:
+                    segment_dict["translation"] = seg.translation
+                segment_list.append(segment_dict)
+
+            entry_data: dict[str, Any] = {
+                "file_name": display_name,
+                "audio_url": f"/uploads/{batch_id}/{audio_path.name}",
+                "segments": segment_list,
+            }
+
+            # Add Gemini metadata
+            if pipeline.summary:
+                entry_data["summary"] = pipeline.summary
+            if pipeline.detected_languages:
+                entry_data["detected_languages"] = pipeline.detected_languages
+
+            return _store_history(entry_data)
+
+        async def run_transcription() -> list[dict[str, Any]]:
             file_count = len(audio_files)
-            for i, (audio_path, display_name) in enumerate(audio_files):
-                file_name = display_name
-
-                def cb(step: str, idx: int) -> None:
-                    progress_callback(step, idx, i, file_count, file_name)
-
-                segments = await loop.run_in_executor(
-                    None,
-                    lambda: pipeline.transcribe(
-                        str(audio_path),
-                        word_timestamps=True,
-                        progress_callback=cb,
-                    ),
-                )
-                entry = _store_history(
-                    {
-                        "file_name": display_name,
-                        "audio_url": f"/uploads/{batch_id}/{audio_path.name}",
-                        "segments": [
-                            {
-                                "start": seg.start,
-                                "end": seg.end,
-                                "speaker": seg.speaker,
-                                "text": seg.text,
-                                "words": [
-                                    {"word": w.word, "start": w.start, "end": w.end}
-                                    for w in (seg.words or [])
-                                ],
-                            }
-                            for seg in segments
-                        ],
-                    }
-                )
-                results.append(entry)
-            return results
+            
+            # Process files in parallel (up to 4 concurrent)
+            max_concurrent = min(4, file_count)
+            semaphore = asyncio.Semaphore(max_concurrent)
+            
+            async def bounded_transcribe(i: int, audio_path: Path, display_name: str) -> dict[str, Any]:
+                async with semaphore:
+                    return await transcribe_single_file(i, audio_path, display_name, file_count)
+            
+            # Create tasks for all files
+            tasks = [
+                bounded_transcribe(i, audio_path, display_name)
+                for i, (audio_path, display_name) in enumerate(audio_files)
+            ]
+            
+            # Run all tasks concurrently and gather results
+            results = await asyncio.gather(*tasks)
+            return list(results)
 
         task = asyncio.create_task(run_transcription())
 

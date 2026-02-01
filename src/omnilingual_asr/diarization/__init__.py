@@ -1,6 +1,19 @@
-from __future__ import annotations
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
 
-from omnilingual_asr.diarization.pipeline import DiarizedTranscriptionPipeline
+"""Gemini-based diarization and transcription pipeline."""
 
-__all__ = ["DiarizedTranscriptionPipeline"]
+from omnilingual_asr.diarization.pipeline import (
+    DiarizedTranscriptSegment,
+    GeminiDiarizedTranscriptionPipeline,
+    WordTimestamp,
+)
 
+__all__ = [
+    "DiarizedTranscriptSegment",
+    "GeminiDiarizedTranscriptionPipeline",
+    "WordTimestamp",
+]

@@ -4,12 +4,18 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-from omnilingual_asr.models.inference.pipeline import (
-    ASRInferencePipeline,
-    ContextExample,
+"""Gemini API-based speech transcription pipeline."""
+
+from omnilingual_asr.models.inference.gemini_pipeline import (
+    GeminiASRPipeline,
+    GeminiTranscriptionResult,
+    GeminiTranscriptSegment,
+    WordTimestamp,
 )
 
 __all__ = [
-    "ContextExample",
-    "ASRInferencePipeline",
+    "GeminiASRPipeline",
+    "GeminiTranscriptionResult",
+    "GeminiTranscriptSegment",
+    "WordTimestamp",
 ]
