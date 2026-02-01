@@ -1575,39 +1575,81 @@ body {
 
 .waveform-segments {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 24px; /* Above time ruler */
   pointer-events: none;
+  z-index: 20;
 }
 
 .waveform-segment {
   position: absolute;
   top: 0;
-  bottom: 24px;
-  background: rgba(140, 21, 21, 0.15);
-  border-left: 2px solid var(--accent);
-  border-right: 2px solid var(--accent);
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.05);
+  border-left: 2px solid rgba(255, 255, 255, 0.4);
+  border-right: 2px solid rgba(255, 255, 255, 0.4);
   pointer-events: auto;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: all 0.15s ease;
 }
 
 .waveform-segment:hover {
-  background: rgba(140, 21, 21, 0.25);
+  background: rgba(255, 255, 255, 0.12);
+  border-color: var(--accent);
+}
+
+.waveform-segment:nth-child(odd) {
+  background: rgba(140, 21, 21, 0.1);
+}
+
+.waveform-segment:nth-child(odd):hover {
+  background: rgba(140, 21, 21, 0.2);
 }
 
 .waveform-segment-label {
   position: absolute;
-  bottom: 100%;
+  top: 4px;
   left: 4px;
-  font-size: 0.65rem;
-  color: var(--bg);
-  background: var(--accent);
+  font-size: 0.6rem;
+  color: #fff;
+  background: rgba(140, 21, 21, 0.8);
   padding: 2px 6px;
-  border-radius: 4px 4px 0 0;
+  border-radius: 3px;
   white-space: nowrap;
-  max-width: 100px;
+  max-width: 80px;
   overflow: hidden;
   text-overflow: ellipsis;
+  z-index: 2;
+}
+
+.waveform-segment-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8), 0 0 8px rgba(0, 0, 0, 0.6);
+  text-align: center;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Show full text on hover */
+.waveform-segment:hover .waveform-segment-text {
+  white-space: normal;
+  word-wrap: break-word;
+  max-width: none;
+  background: rgba(0, 0, 0, 0.7);
+  padding: 4px 8px;
+  border-radius: 4px;
 }
 
 .waveform-segment-handle {
@@ -1629,7 +1671,25 @@ body {
 }
 
 .waveform-segment-handle:hover {
-  background: rgba(140, 21, 21, 0.5);
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.waveform-segment-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 1px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.waveform-segment-handle:hover::after {
+  opacity: 1;
 }
 
 .waveform-time-ruler {

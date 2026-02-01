@@ -2428,7 +2428,20 @@ function renderSegmentsOnWaveform() {
     segmentEl.style.width = `${widthPct}%`;
     segmentEl.dataset.segment = idx;
     
-    // Add label
+    // Add phrase text overlay
+    const phraseText = document.createElement("div");
+    phraseText.className = "waveform-segment-text";
+    // Get the text from words or use a fallback
+    let text = "";
+    if (segment.words && segment.words.length > 0) {
+      text = segment.words.map(w => w.word || w.text || "").join(" ");
+    } else if (segment.text) {
+      text = segment.text;
+    }
+    phraseText.textContent = text;
+    segmentEl.appendChild(phraseText);
+    
+    // Add speaker label (smaller, at top)
     const label = document.createElement("div");
     label.className = "waveform-segment-label";
     label.textContent = segment.speaker || `#${idx + 1}`;
@@ -2476,23 +2489,47 @@ function setupDragHandle(handle, segment, segIdx, handleType) {
     document.body.style.cursor = "ew-resize";
   });
   
-  document.addEventListener("mousemove", (e) => {
+  const moveHandler = (e) => {
     if (!isDragging) return;
     
-    const container = waveformCanvas.parentElement;
+    const container = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
     const width = container.offsetWidth;
     const duration = audioEl.duration;
     const deltaX = e.clientX - startX;
-    const deltaTime = (deltaX / width) * duration;
+    const deltaTime = (deltaX / width) * duration / waveformZoom;
     let newTime = originalTime + deltaTime;
     
-    // Constraints
+    // Get adjacent segments for boundary linking
+    const prevSegment = segIdx > 0 ? activeData.segments[segIdx - 1] : null;
+    const nextSegment = segIdx < activeData.segments.length - 1 ? activeData.segments[segIdx + 1] : null;
+    
+    // Constraints and adjacent segment linking
     if (handleType === "start") {
-      newTime = Math.max(0, Math.min(newTime, segment.end - 0.1));
+      // Don't go before previous segment's start + 0.05s buffer
+      const minTime = prevSegment ? prevSegment.start + 0.05 : 0;
+      newTime = Math.max(minTime, Math.min(newTime, segment.end - 0.05));
       segment.start = newTime;
+      
+      // Link to previous segment's end (no overlap)
+      if (prevSegment) {
+        prevSegment.end = newTime;
+        if (activeData?.segments[segIdx - 1]) {
+          activeData.segments[segIdx - 1].end = newTime;
+        }
+      }
     } else {
-      newTime = Math.max(segment.start + 0.1, Math.min(newTime, duration));
+      // Don't go past next segment's end - 0.05s buffer
+      const maxTime = nextSegment ? nextSegment.end - 0.05 : duration;
+      newTime = Math.max(segment.start + 0.05, Math.min(newTime, maxTime));
       segment.end = newTime;
+      
+      // Link to next segment's start (no overlap)
+      if (nextSegment) {
+        nextSegment.start = newTime;
+        if (activeData?.segments[segIdx + 1]) {
+          activeData.segments[segIdx + 1].start = newTime;
+        }
+      }
     }
     
     // Update activeData
@@ -2501,19 +2538,28 @@ function setupDragHandle(handle, segment, segIdx, handleType) {
     }
     
     renderSegmentsOnWaveform();
-  });
+    renderWordsOnWaveform();
+  };
   
-  document.addEventListener("mouseup", async () => {
+  const upHandler = async () => {
     if (isDragging) {
       isDragging = false;
       document.body.style.cursor = "";
+      document.removeEventListener("mousemove", moveHandler);
+      document.removeEventListener("mouseup", upHandler);
       
       // Save changes
       if (activeId && activeData) {
         await updateHistory(activeId, { segments: activeData.segments });
+        rebuildActiveWords();
         renderTranscript(activeData);
       }
     }
+  };
+  
+  handle.addEventListener("mousedown", () => {
+    document.addEventListener("mousemove", moveHandler);
+    document.addEventListener("mouseup", upHandler);
   });
 }
 
