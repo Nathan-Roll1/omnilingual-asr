@@ -1526,8 +1526,13 @@ function activateTranscript(data) {
   activeAudioUrl = blobUrl || data.audio_url;
   
   if (activeAudioUrl) {
+    // Set crossOrigin BEFORE setting src for Web Audio API compatibility
+    audioEl.crossOrigin = "anonymous";
     audioEl.src = activeAudioUrl;
     playerBar.classList.add("visible");
+    
+    // Reset audio source connection when switching tracks
+    audioSource = null;
   } else {
     // No audio available - hide player or show disabled state
     audioEl.src = "";
@@ -1953,8 +1958,19 @@ function resizeWaveformCanvas() {
   spectrogramCanvas.height = rect.height * dpr;
   spectrogramCanvas.style.width = `${rect.width}px`;
   spectrogramCanvas.style.height = `${rect.height}px`;
+  // Note: Spectrogram uses raw pixel coordinates (no transform) for ImageData operations
+  // The DPR is handled in computeSpectrogram() by using canvas.width directly
   if (spectrogramCtx) {
     spectrogramCtx.setTransform(1, 0, 0, 1, 0, 0);
+  }
+  
+  // Also resize pitch canvas if it exists
+  const pitchCanvas = document.getElementById("pitch-canvas");
+  if (pitchCanvas) {
+    pitchCanvas.width = rect.width * dpr;
+    pitchCanvas.height = rect.height * dpr;
+    pitchCanvas.style.width = `${rect.width}px`;
+    pitchCanvas.style.height = `${rect.height}px`;
   }
 }
 
@@ -2023,14 +2039,16 @@ function drawWaveform() {
   // Calculate visible range based on zoom and scroll
   const totalWidth = waveformData.length;
   
-  // Auto-center on playhead when zoomed
-  if (waveformZoom > 1 && audioEl.duration) {
+  // Auto-center on playhead when zoomed AND playing
+  // Only auto-scroll when audio is playing to allow manual scroll when paused
+  if (waveformZoom > 1 && audioEl.duration && !audioEl.paused) {
     const playheadPosition = (audioEl.currentTime / audioEl.duration) * totalWidth;
     const visibleRange = canvasWidth;
     waveformScrollOffset = Math.max(0, Math.min(playheadPosition - visibleRange / 2, totalWidth - visibleRange));
-  } else {
+  } else if (waveformZoom <= 1) {
     waveformScrollOffset = 0;
   }
+  // When paused, preserve the current waveformScrollOffset for manual scrolling
   
   waveformCtx.clearRect(0, 0, canvasWidth, height + 24);
   
@@ -2191,18 +2209,19 @@ async function computeSpectrogram() {
   let endSample = totalSamples;
   
   if (waveformZoom > 1 && waveformData) {
+    // waveformData.length is already zoomed (baseWidth * waveformZoom)
+    // So we need to calculate visible time range properly
     const totalWaveformPoints = waveformData.length;
-    // Map scroll offset to samples
-    startSample = Math.floor((waveformScrollOffset / totalWaveformPoints) * totalSamples);
-    const visibleRatio = (canvas.width / (window.devicePixelRatio || 1)) / totalWaveformPoints;
-    // Fix: use the actual canvas width logic from drawWaveform
-    // Actually, let's use time-based calculation to be consistent
     const duration = audioEl.duration;
+    const dpr = window.devicePixelRatio || 1;
+    const canvasWidthLogical = canvas.width / dpr;
+    
+    // Calculate visible time range
     const visibleStartTime = (waveformScrollOffset / totalWaveformPoints) * duration;
-    const visibleDuration = ((canvas.width / (window.devicePixelRatio || 1)) / totalWaveformPoints) * duration;
+    const visibleEndTime = ((waveformScrollOffset + canvasWidthLogical) / totalWaveformPoints) * duration;
     
     startSample = Math.floor(visibleStartTime * sampleRate);
-    endSample = Math.floor((visibleStartTime + visibleDuration) * sampleRate);
+    endSample = Math.floor(visibleEndTime * sampleRate);
   }
   
   // Clamp
@@ -2277,51 +2296,6 @@ async function computeSpectrogram() {
 // Replaces the real-time drawSpectrogram
 function drawSpectrogram() {
   // No-op for loop, handled by computeSpectrogram
-}
-
-// Hook into visualization loop
-function startVisualization() {
-  if (animationFrameId) return;
-  
-  function animate() {
-    // Only update playhead in loop
-    updatePlayhead();
-    
-    // If waveform view, we might need to redraw if scrolling/playing?
-    // Actually drawWaveform handles scrolling internally if we call it
-    if (currentWaveformView === "waveform") {
-      drawWaveform();
-    }
-    // Spectrogram is static, so we don't redraw it in loop unless scrolling
-    // If playing and zoomed, we need to recompute spectrogram as it scrolls?
-    // That would be slow. 
-    // Better: If zoomed and playing, maybe just move the playhead?
-    // But if playhead goes off screen, we must scroll.
-    // If we scroll, we must recompute.
-    // For now, let's recompute if scroll offset changes significantly?
-    // Or just rely on the fact that drawWaveform updates scroll offset.
-    
-    if (currentWaveformView === "spectrogram" && waveformZoom > 1 && audioEl.duration && !audioEl.paused) {
-       // Check if we need to scroll
-       const totalWidth = waveformData ? waveformData.length : 0;
-       const playheadPosition = (audioEl.currentTime / audioEl.duration) * totalWidth;
-       const canvasWidth = waveformCanvas.width / (window.devicePixelRatio || 1);
-       
-       // Simple auto-scroll logic matching drawWaveform
-       const targetOffset = Math.max(0, Math.min(playheadPosition - canvasWidth / 2, totalWidth - canvasWidth));
-       
-       if (Math.abs(targetOffset - waveformScrollOffset) > 1) {
-         waveformScrollOffset = targetOffset;
-         // Debounce spectrogram update or it will lag
-         // For now, let's try updating it. It might be 10-20ms, which is 50fps.
-         computeSpectrogram();
-       }
-    }
-    
-    animationFrameId = requestAnimationFrame(animate);
-  }
-  
-  animate();
 }
 
 function updatePlayhead() {
@@ -2477,27 +2451,39 @@ function renderSegmentsOnWaveform() {
 
 function setupDragHandle(handle, segment, segIdx, handleType) {
   let isDragging = false;
-  let startX = 0;
+  let dragStartX = 0;
   let originalTime = 0;
+  let containerRect = null;
   
   handle.addEventListener("mousedown", (e) => {
     e.preventDefault();
     e.stopPropagation();
     isDragging = true;
-    startX = e.clientX;
+    const container = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
+    containerRect = container.getBoundingClientRect();
+    dragStartX = e.clientX - containerRect.left;
     originalTime = handleType === "start" ? segment.start : segment.end;
     document.body.style.cursor = "ew-resize";
   });
   
   const moveHandler = (e) => {
-    if (!isDragging) return;
+    if (!isDragging || !containerRect) return;
     
-    const container = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
-    const width = container.offsetWidth;
+    const width = containerRect.width;
     const duration = audioEl.duration;
-    const deltaX = e.clientX - startX;
-    const deltaTime = (deltaX / width) * duration / waveformZoom;
-    let newTime = originalTime + deltaTime;
+    
+    // Get container-relative mouse position
+    const mouseX = e.clientX - containerRect.left;
+    
+    // Calculate time at mouse position, accounting for zoom and scroll
+    let newTime;
+    if (waveformZoom > 1 && waveformData) {
+      const totalWidth = waveformData.length;
+      const positionInData = mouseX + waveformScrollOffset;
+      newTime = (positionInData / totalWidth) * duration;
+    } else {
+      newTime = (mouseX / width) * duration;
+    }
     
     // Get adjacent segments for boundary linking
     const prevSegment = segIdx > 0 ? activeData.segments[segIdx - 1] : null;
@@ -2567,12 +2553,16 @@ function startVisualization() {
   if (animationFrameId) return;
   
   function animate() {
+    // Always update playhead position
     updatePlayhead();
     
-    if (currentWaveformView === "waveform") {
+    // Only redraw waveform when playing (it's expensive)
+    if (currentWaveformView === "waveform" && !audioEl.paused) {
       drawWaveform();
-    } else     if ((currentWaveformView === "spectrogram" || currentWaveformView === "both") && waveformZoom > 1 && audioEl.duration && !audioEl.paused) {
-       // Auto-scroll spectrogram when zoomed and playing
+    }
+    
+    // Auto-scroll spectrogram when zoomed and playing
+    if ((currentWaveformView === "spectrogram" || currentWaveformView === "both") && waveformZoom > 1 && audioEl.duration && !audioEl.paused) {
        const totalWidth = waveformData ? waveformData.length : 0;
        const playheadPosition = (audioEl.currentTime / audioEl.duration) * totalWidth;
        const container = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
@@ -2584,6 +2574,9 @@ function startVisualization() {
        if (Math.abs(targetOffset - waveformScrollOffset) > 5) {
          waveformScrollOffset = targetOffset;
          computeSpectrogram();
+         renderSegmentsOnWaveform();
+         renderWordsOnWaveform();
+         updateTimeRuler();
        }
     }
     
@@ -2636,23 +2629,51 @@ if (tabSpectrogram) {
 
 if (zoomInBtn) {
   zoomInBtn.addEventListener("click", () => {
+    const oldZoom = waveformZoom;
     waveformZoom = Math.min(waveformZoom * 1.5, 10);
+    
+    // Preserve relative scroll position when zooming in
+    // Scale scroll offset proportionally to new zoom level
+    if (oldZoom > 1) {
+      waveformScrollOffset = waveformScrollOffset * (waveformZoom / oldZoom);
+    }
+    
     computeWaveformData().then(() => {
       updateTimeRuler();
       renderSegmentsOnWaveform();
-      if (currentWaveformView === "spectrogram") computeSpectrogram();
+      renderWordsOnWaveform();
+      updatePlayhead();
+      if (currentWaveformView === "waveform") {
+        drawWaveform();
+      } else {
+        computeSpectrogram();
+      }
     });
   });
 }
 
 if (zoomOutBtn) {
   zoomOutBtn.addEventListener("click", () => {
+    const oldZoom = waveformZoom;
     waveformZoom = Math.max(waveformZoom / 1.5, 1); // Min zoom is 1 (fit to width)
-    waveformScrollOffset = 0;
+    
+    // Scale scroll offset proportionally, reset to 0 when fully zoomed out
+    if (waveformZoom <= 1) {
+      waveformScrollOffset = 0;
+    } else {
+      waveformScrollOffset = Math.max(0, waveformScrollOffset * (waveformZoom / oldZoom));
+    }
+    
     computeWaveformData().then(() => {
       updateTimeRuler();
       renderSegmentsOnWaveform();
-      if (currentWaveformView === "spectrogram") computeSpectrogram();
+      renderWordsOnWaveform();
+      updatePlayhead();
+      if (currentWaveformView === "waveform") {
+        drawWaveform();
+      } else {
+        computeSpectrogram();
+      }
     });
   });
 }
@@ -2662,7 +2683,10 @@ function handleCanvasClick(e) {
   if (!audioEl.duration || !waveformCanvasContainer) return;
 
   // Ignore clicks on drag handles
-  if (e.target.closest(".waveform-segment-handle")) return;
+  if (e.target.closest(".waveform-segment-handle") || e.target.closest(".waveform-word-handle")) return;
+  
+  // Ignore shift+click (used for selection)
+  if (e.shiftKey) return;
 
   const rect = waveformCanvasContainer.getBoundingClientRect();
   const x = e.clientX - rect.left;
@@ -2670,11 +2694,14 @@ function handleCanvasClick(e) {
 
   let newTime;
 
-  if (waveformZoom > 1 && waveformData && currentWaveformView === "waveform") {
+  // Apply zoom/scroll calculation for ALL views, not just waveform
+  if (waveformZoom > 1 && waveformData) {
     // When zoomed, calculate position relative to scroll offset
     const totalWidth = waveformData.length;
     const clickPositionInData = x + waveformScrollOffset;
-    newTime = (clickPositionInData / totalWidth) * audioEl.duration;
+    // Clamp to valid range
+    const clampedPosition = Math.max(0, Math.min(clickPositionInData, totalWidth));
+    newTime = (clampedPosition / totalWidth) * audioEl.duration;
   } else {
     newTime = (x / canvasWidth) * audioEl.duration;
   }
@@ -2692,6 +2719,34 @@ function handleCanvasClick(e) {
 
 if (waveformCanvasContainer) {
   waveformCanvasContainer.addEventListener("pointerdown", handleCanvasClick, true);
+  
+  // Add scroll wheel support for panning when zoomed
+  waveformCanvasContainer.addEventListener("wheel", (e) => {
+    if (waveformZoom <= 1 || !waveformData) return;
+    
+    e.preventDefault();
+    
+    const container = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
+    const canvasWidth = container.offsetWidth;
+    const totalWidth = waveformData.length;
+    
+    // Scroll horizontally (shift+wheel or horizontal scroll)
+    const delta = e.shiftKey ? e.deltaY : e.deltaX || e.deltaY;
+    const scrollAmount = delta * 0.5; // Adjust sensitivity
+    
+    waveformScrollOffset = Math.max(0, Math.min(waveformScrollOffset + scrollAmount, totalWidth - canvasWidth));
+    
+    // Redraw with new scroll position
+    if (currentWaveformView === "waveform") {
+      drawWaveform();
+    } else {
+      computeSpectrogram();
+    }
+    renderSegmentsOnWaveform();
+    renderWordsOnWaveform();
+    updateTimeRuler();
+    updatePlayhead();
+  }, { passive: false });
 }
 
 // =============================================
@@ -3087,6 +3142,20 @@ audioEl.addEventListener("loadedmetadata", () => {
 
 audioEl.addEventListener("play", () => {
   ensureAudioSource();
+  // Start animation loop if panel is visible
+  if (isWaveformVisible) {
+    startVisualization();
+  }
+});
+
+audioEl.addEventListener("pause", () => {
+  // Redraw once when pausing to ensure final position is shown
+  if (isWaveformVisible) {
+    if (currentWaveformView === "waveform") {
+      drawWaveform();
+    }
+    updatePlayhead();
+  }
 });
 
 // =============================================
@@ -3228,27 +3297,35 @@ function renderWordsOnWaveform() {
 
 function setupWordDragHandle(handle, word, segment, handleType) {
   let isDragging = false;
-  let startX = 0;
-  let originalTime = 0;
+  let containerRect = null;
   
   handle.addEventListener("mousedown", (e) => {
     e.preventDefault();
     e.stopPropagation();
     isDragging = true;
-    startX = e.clientX;
-    originalTime = handleType === "start" ? (word.start ?? segment.start) : (word.end ?? segment.end);
+    const container = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
+    containerRect = container.getBoundingClientRect();
     document.body.style.cursor = "ew-resize";
   });
   
   const moveHandler = (e) => {
-    if (!isDragging) return;
+    if (!isDragging || !containerRect) return;
     
-    const container = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
-    const width = container.offsetWidth;
+    const width = containerRect.width;
     const duration = audioEl.duration;
-    const deltaX = e.clientX - startX;
-    const deltaTime = (deltaX / width) * duration / waveformZoom;
-    let newTime = originalTime + deltaTime;
+    
+    // Get container-relative mouse position
+    const mouseX = e.clientX - containerRect.left;
+    
+    // Calculate time at mouse position, accounting for zoom and scroll
+    let newTime;
+    if (waveformZoom > 1 && waveformData) {
+      const totalWidth = waveformData.length;
+      const positionInData = mouseX + waveformScrollOffset;
+      newTime = (positionInData / totalWidth) * duration;
+    } else {
+      newTime = (mouseX / width) * duration;
+    }
     
     // Constraints
     const wordStart = word.start ?? segment.start;
