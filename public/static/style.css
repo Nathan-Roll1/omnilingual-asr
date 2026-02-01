@@ -2048,3 +2048,352 @@ body {
     height: 150px;
   }
 }
+
+/* =============================================
+   ENHANCED PHONETIC ANALYSIS FEATURES
+   ============================================= */
+
+/* Split view container */
+.waveform-split-container {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+}
+
+.waveform-pane {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+
+.waveform-pane-top {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  display: none; /* Hidden unless in split mode */
+}
+
+.waveform-panel.split-view .waveform-pane-top {
+  display: block;
+}
+
+.waveform-pane canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+#pitch-canvas {
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* Overlays container */
+.waveform-overlays {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.waveform-overlays > * {
+  pointer-events: auto;
+}
+
+/* Selection region */
+.waveform-selection {
+  position: absolute;
+  top: 0;
+  bottom: 24px; /* Above time ruler */
+  background: rgba(179, 27, 27, 0.25);
+  border-left: 2px solid var(--accent);
+  border-right: 2px solid var(--accent);
+  display: none;
+  z-index: 15;
+  cursor: grab;
+}
+
+.waveform-selection.active {
+  display: block;
+}
+
+.waveform-selection.looping {
+  background: rgba(179, 27, 27, 0.4);
+  animation: pulse-selection 1s ease-in-out infinite;
+}
+
+@keyframes pulse-selection {
+  0%, 100% { background: rgba(179, 27, 27, 0.25); }
+  50% { background: rgba(179, 27, 27, 0.45); }
+}
+
+/* Word boundaries overlay */
+.waveform-words {
+  position: absolute;
+  top: 0;
+  bottom: 24px;
+  left: 0;
+  right: 0;
+  z-index: 8;
+}
+
+.waveform-word {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px dashed rgba(255, 255, 255, 0.3);
+  border-right: 1px dashed rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.waveform-word:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.waveform-word.selected {
+  background: rgba(179, 27, 27, 0.2);
+  border-color: var(--accent);
+}
+
+.waveform-word-label {
+  position: absolute;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  padding: 2px 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
+.waveform-word:hover .waveform-word-label,
+.waveform-word.selected .waveform-word-label {
+  opacity: 1;
+}
+
+/* Word boundary drag handles */
+.waveform-word-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: ew-resize;
+  z-index: 20;
+}
+
+.waveform-word-handle.left {
+  left: -3px;
+}
+
+.waveform-word-handle.right {
+  right: -3px;
+}
+
+.waveform-word-handle:hover::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: var(--accent);
+}
+
+/* Cursor info display */
+.waveform-cursor-info {
+  position: absolute;
+  top: 44px;
+  right: 12px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  display: flex;
+  gap: 12px;
+  z-index: 100;
+  pointer-events: none;
+}
+
+.cursor-time,
+.cursor-freq {
+  opacity: 0.9;
+}
+
+/* Frequency axis */
+.waveform-freq-axis {
+  position: absolute;
+  left: 0;
+  top: 40px;
+  bottom: 24px;
+  width: 40px;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 4px 2px;
+  font-size: 9px;
+  font-family: var(--font-mono);
+  color: rgba(255, 255, 255, 0.6);
+  z-index: 50;
+  pointer-events: none;
+  display: none; /* Show only in spectrogram mode */
+}
+
+.waveform-panel[data-view="spectrogram"] .waveform-freq-axis,
+.waveform-panel[data-view="both"] .waveform-freq-axis {
+  display: flex;
+}
+
+.freq-mark {
+  text-align: right;
+  padding-right: 4px;
+}
+
+/* Control separator */
+.waveform-separator {
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.2);
+  margin: 0 4px;
+}
+
+/* Active state for toggle buttons */
+.waveform-ctrl-btn.active {
+  background: var(--accent-glow);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* =============================================
+   IPA CHARACTER PICKER
+   ============================================= */
+
+.ipa-picker {
+  position: fixed;
+  bottom: 100px;
+  right: 20px;
+  width: 360px;
+  max-height: 400px;
+  background: var(--surface);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  overflow: hidden;
+}
+
+.ipa-picker.hidden {
+  display: none;
+}
+
+.ipa-picker-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--sidebar-bg);
+  border-bottom: 1px solid var(--sidebar-border);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.ipa-picker-close {
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: var(--ink-muted);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.ipa-picker-close:hover {
+  color: var(--ink);
+}
+
+.ipa-picker-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--sidebar-border);
+  background: var(--sidebar-bg);
+}
+
+.ipa-tab {
+  flex: 1;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  font-size: 12px;
+  color: var(--ink-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s ease;
+}
+
+.ipa-tab:hover {
+  color: var(--ink);
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.ipa-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.ipa-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 4px;
+  padding: 12px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.ipa-char {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  font-size: 16px;
+  font-family: "Doulos SIL", "Charis SIL", "Gentium Plus", "DejaVu Sans", sans-serif;
+  background: var(--bg);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+
+.ipa-char:hover {
+  background: var(--accent-glow);
+  border-color: var(--accent);
+  transform: scale(1.1);
+}
+
+.ipa-char:active {
+  transform: scale(0.95);
+}
+
+/* Playhead styles for split view */
+.waveform-playhead-top {
+  z-index: 10;
+}
+
+/* Tab active states */
+#tab-both.active ~ .waveform-split-container .waveform-pane-top {
+  display: block;
+}

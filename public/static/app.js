@@ -1937,7 +1937,7 @@ function toggleWaveformPanel() {
 function resizeWaveformCanvas() {
   if (!waveformCanvas || !spectrogramCanvas) return;
   
-  const container = waveformCanvas.parentElement;
+  const container = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
   const rect = container.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
   
@@ -2327,7 +2327,7 @@ function startVisualization() {
 function updatePlayhead() {
   if (!audioEl.duration || !waveformPlayhead) return;
   
-  const container = waveformCanvas.parentElement;
+  const container = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
   const canvasWidth = container.offsetWidth;
   
   if (waveformZoom > 1 && waveformData) {
@@ -2349,7 +2349,7 @@ function updateTimeRuler() {
   if (!waveformTimeRuler || !audioEl.duration) return;
   
   waveformTimeRuler.innerHTML = "";
-  const container = waveformCanvas.parentElement;
+  const container = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
   const canvasWidth = container.offsetWidth;
   const duration = audioEl.duration;
   
@@ -2390,7 +2390,7 @@ function renderSegmentsOnWaveform() {
   
   waveformSegments.innerHTML = "";
   const duration = audioEl.duration;
-  const container = waveformCanvas.parentElement;
+  const container = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
   const canvasWidth = container.offsetWidth;
   
   // Calculate visible time range when zoomed
@@ -2525,11 +2525,12 @@ function startVisualization() {
     
     if (currentWaveformView === "waveform") {
       drawWaveform();
-    } else if (currentWaveformView === "spectrogram" && waveformZoom > 1 && audioEl.duration && !audioEl.paused) {
+    } else     if ((currentWaveformView === "spectrogram" || currentWaveformView === "both") && waveformZoom > 1 && audioEl.duration && !audioEl.paused) {
        // Auto-scroll spectrogram when zoomed and playing
        const totalWidth = waveformData ? waveformData.length : 0;
        const playheadPosition = (audioEl.currentTime / audioEl.duration) * totalWidth;
-       const canvasWidth = waveformCanvas.width / (window.devicePixelRatio || 1);
+       const container = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
+       const canvasWidth = container.offsetWidth;
        
        const targetOffset = Math.max(0, Math.min(playheadPosition - canvasWidth / 2, totalWidth - canvasWidth));
        
@@ -3077,4 +3078,918 @@ window.addEventListener("resize", () => {
   }
 });
 
-console.log("OmniTranscribe enhanced features loaded. Press ? for keyboard shortcuts.");
+// =============================================
+// WORD-LEVEL BOUNDARIES OVERLAY
+// =============================================
+
+const waveformWords = document.getElementById("waveform-words");
+const toggleWordsBtn = document.getElementById("toggle-words");
+let showWordBoundaries = true;
+let selectedWordIdx = null;
+
+function renderWordsOnWaveform() {
+  if (!waveformWords || !activeData?.segments || !audioEl.duration) return;
+  
+  waveformWords.innerHTML = "";
+  
+  if (!showWordBoundaries) return;
+  
+  const duration = audioEl.duration;
+  const container = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
+  const canvasWidth = container.offsetWidth;
+  
+  // Calculate visible time range when zoomed
+  let visibleStartTime = 0;
+  let visibleEndTime = duration;
+  
+  if (waveformZoom > 1 && waveformData) {
+    const totalWidth = waveformData.length;
+    visibleStartTime = (waveformScrollOffset / totalWidth) * duration;
+    visibleEndTime = ((waveformScrollOffset + canvasWidth) / totalWidth) * duration;
+  }
+  
+  let globalWordIdx = 0;
+  
+  activeData.segments.forEach((segment) => {
+    if (!segment.words) return;
+    
+    segment.words.forEach((word) => {
+      const wordStart = word.start ?? segment.start;
+      const wordEnd = word.end ?? segment.end;
+      
+      // Skip words outside visible range when zoomed
+      if (waveformZoom > 1 && (wordEnd < visibleStartTime || wordStart > visibleEndTime)) {
+        globalWordIdx++;
+        return;
+      }
+      
+      let leftPct, widthPct;
+      
+      if (waveformZoom > 1 && waveformData) {
+        const visibleDuration = visibleEndTime - visibleStartTime;
+        const wStart = Math.max(wordStart, visibleStartTime);
+        const wEnd = Math.min(wordEnd, visibleEndTime);
+        leftPct = ((wStart - visibleStartTime) / visibleDuration) * 100;
+        widthPct = ((wEnd - wStart) / visibleDuration) * 100;
+      } else {
+        leftPct = (wordStart / duration) * 100;
+        widthPct = ((wordEnd - wordStart) / duration) * 100;
+      }
+      
+      const wordEl = document.createElement("div");
+      wordEl.className = "waveform-word";
+      wordEl.style.left = `${leftPct}%`;
+      wordEl.style.width = `${Math.max(0.5, widthPct)}%`;
+      wordEl.dataset.wordIdx = globalWordIdx;
+      
+      if (globalWordIdx === selectedWordIdx) {
+        wordEl.classList.add("selected");
+      }
+      
+      // Label
+      const label = document.createElement("div");
+      label.className = "waveform-word-label";
+      label.textContent = word.word || word.text || "";
+      wordEl.appendChild(label);
+      
+      // Drag handles
+      const leftHandle = document.createElement("div");
+      leftHandle.className = "waveform-word-handle left";
+      wordEl.appendChild(leftHandle);
+      
+      const rightHandle = document.createElement("div");
+      rightHandle.className = "waveform-word-handle right";
+      wordEl.appendChild(rightHandle);
+      
+      // Click to select and play
+      wordEl.addEventListener("click", (e) => {
+        if (e.target.classList.contains("waveform-word-handle")) return;
+        selectedWordIdx = parseInt(wordEl.dataset.wordIdx);
+        audioEl.currentTime = wordStart;
+        if (audioEl.paused) audioEl.play();
+        renderWordsOnWaveform();
+      });
+      
+      // Drag handles for word boundary editing
+      setupWordDragHandle(leftHandle, word, segment, "start");
+      setupWordDragHandle(rightHandle, word, segment, "end");
+      
+      waveformWords.appendChild(wordEl);
+      globalWordIdx++;
+    });
+  });
+}
+
+function setupWordDragHandle(handle, word, segment, handleType) {
+  let isDragging = false;
+  let startX = 0;
+  let originalTime = 0;
+  
+  handle.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    isDragging = true;
+    startX = e.clientX;
+    originalTime = handleType === "start" ? (word.start ?? segment.start) : (word.end ?? segment.end);
+    document.body.style.cursor = "ew-resize";
+  });
+  
+  const moveHandler = (e) => {
+    if (!isDragging) return;
+    
+    const container = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
+    const width = container.offsetWidth;
+    const duration = audioEl.duration;
+    const deltaX = e.clientX - startX;
+    const deltaTime = (deltaX / width) * duration / waveformZoom;
+    let newTime = originalTime + deltaTime;
+    
+    // Constraints
+    const wordStart = word.start ?? segment.start;
+    const wordEnd = word.end ?? segment.end;
+    
+    if (handleType === "start") {
+      newTime = Math.max(segment.start, Math.min(newTime, wordEnd - 0.01));
+      word.start = newTime;
+    } else {
+      newTime = Math.max(wordStart + 0.01, Math.min(newTime, segment.end));
+      word.end = newTime;
+    }
+    
+    renderWordsOnWaveform();
+  };
+  
+  const upHandler = async () => {
+    if (isDragging) {
+      isDragging = false;
+      document.body.style.cursor = "";
+      document.removeEventListener("mousemove", moveHandler);
+      document.removeEventListener("mouseup", upHandler);
+      
+      // Save changes
+      if (activeId && activeData) {
+        await updateHistory(activeId, { segments: activeData.segments });
+        rebuildActiveWords();
+      }
+    }
+  };
+  
+  handle.addEventListener("mousedown", () => {
+    document.addEventListener("mousemove", moveHandler);
+    document.addEventListener("mouseup", upHandler);
+  });
+}
+
+if (toggleWordsBtn) {
+  toggleWordsBtn.addEventListener("click", () => {
+    showWordBoundaries = !showWordBoundaries;
+    toggleWordsBtn.classList.toggle("active", showWordBoundaries);
+    renderWordsOnWaveform();
+  });
+  toggleWordsBtn.classList.add("active");
+}
+
+// =============================================
+// SELECTION & LOOP PLAYBACK
+// =============================================
+
+const waveformSelection = document.getElementById("waveform-selection");
+const loopSelectionBtn = document.getElementById("loop-selection");
+let selectionStart = null;
+let selectionEnd = null;
+let isLooping = false;
+let isSelecting = false;
+
+function updateSelectionDisplay() {
+  if (!waveformSelection || selectionStart === null || selectionEnd === null) {
+    if (waveformSelection) waveformSelection.classList.remove("active");
+    return;
+  }
+  
+  const duration = audioEl.duration;
+  if (!duration) return;
+  
+  const container = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
+  const canvasWidth = container.offsetWidth;
+  
+  let startPct, endPct;
+  
+  if (waveformZoom > 1 && waveformData) {
+    const totalWidth = waveformData.length;
+    const visibleStartTime = (waveformScrollOffset / totalWidth) * duration;
+    const visibleEndTime = ((waveformScrollOffset + canvasWidth) / totalWidth) * duration;
+    const visibleDuration = visibleEndTime - visibleStartTime;
+    
+    startPct = ((Math.max(selectionStart, visibleStartTime) - visibleStartTime) / visibleDuration) * 100;
+    endPct = ((Math.min(selectionEnd, visibleEndTime) - visibleStartTime) / visibleDuration) * 100;
+  } else {
+    startPct = (selectionStart / duration) * 100;
+    endPct = (selectionEnd / duration) * 100;
+  }
+  
+  waveformSelection.style.left = `${startPct}%`;
+  waveformSelection.style.width = `${endPct - startPct}%`;
+  waveformSelection.classList.add("active");
+  waveformSelection.classList.toggle("looping", isLooping);
+}
+
+function clearSelection() {
+  selectionStart = null;
+  selectionEnd = null;
+  isLooping = false;
+  updateSelectionDisplay();
+  if (loopSelectionBtn) loopSelectionBtn.classList.remove("active");
+}
+
+function playSelection() {
+  if (selectionStart !== null && selectionEnd !== null) {
+    audioEl.currentTime = selectionStart;
+    audioEl.play();
+  }
+}
+
+function toggleLoop() {
+  if (selectionStart === null || selectionEnd === null) return;
+  isLooping = !isLooping;
+  if (loopSelectionBtn) loopSelectionBtn.classList.toggle("active", isLooping);
+  updateSelectionDisplay();
+  if (isLooping) {
+    audioEl.currentTime = selectionStart;
+    audioEl.play();
+  }
+}
+
+// Loop enforcement
+audioEl.addEventListener("timeupdate", () => {
+  if (isLooping && selectionStart !== null && selectionEnd !== null) {
+    if (audioEl.currentTime >= selectionEnd) {
+      audioEl.currentTime = selectionStart;
+    }
+  }
+});
+
+if (loopSelectionBtn) {
+  loopSelectionBtn.addEventListener("click", toggleLoop);
+}
+
+// Selection via drag on waveform
+const waveformOverlays = document.getElementById("waveform-overlays");
+if (waveformOverlays) {
+  let dragStartX = 0;
+  let dragStartTime = 0;
+  
+  waveformOverlays.addEventListener("mousedown", (e) => {
+    if (e.target.closest(".waveform-word-handle") || e.target.closest(".waveform-segment-handle")) return;
+    if (e.shiftKey) {
+      // Shift+click to create selection
+      isSelecting = true;
+      dragStartX = e.clientX;
+      const container = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
+      const rect = container.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const duration = audioEl.duration;
+      
+      if (waveformZoom > 1 && waveformData) {
+        const totalWidth = waveformData.length;
+        const visibleStartTime = (waveformScrollOffset / totalWidth) * duration;
+        const visibleDuration = ((container.offsetWidth) / totalWidth) * duration;
+        dragStartTime = visibleStartTime + (x / container.offsetWidth) * visibleDuration;
+      } else {
+        dragStartTime = (x / container.offsetWidth) * duration;
+      }
+      
+      selectionStart = dragStartTime;
+      selectionEnd = dragStartTime;
+      updateSelectionDisplay();
+      e.preventDefault();
+    }
+  });
+  
+  document.addEventListener("mousemove", (e) => {
+    if (!isSelecting) return;
+    
+    const container = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
+    const rect = container.getBoundingClientRect();
+    const x = Math.max(0, Math.min(e.clientX - rect.left, container.offsetWidth));
+    const duration = audioEl.duration;
+    
+    let currentTime;
+    if (waveformZoom > 1 && waveformData) {
+      const totalWidth = waveformData.length;
+      const visibleStartTime = (waveformScrollOffset / totalWidth) * duration;
+      const visibleDuration = ((container.offsetWidth) / totalWidth) * duration;
+      currentTime = visibleStartTime + (x / container.offsetWidth) * visibleDuration;
+    } else {
+      currentTime = (x / container.offsetWidth) * duration;
+    }
+    
+    if (currentTime < dragStartTime) {
+      selectionStart = currentTime;
+      selectionEnd = dragStartTime;
+    } else {
+      selectionStart = dragStartTime;
+      selectionEnd = currentTime;
+    }
+    
+    updateSelectionDisplay();
+  });
+  
+  document.addEventListener("mouseup", () => {
+    if (isSelecting) {
+      isSelecting = false;
+      // If selection is too small, clear it
+      if (selectionEnd - selectionStart < 0.05) {
+        clearSelection();
+      }
+    }
+  });
+}
+
+// =============================================
+// SPLIT VIEW (WAVEFORM + SPECTROGRAM)
+// =============================================
+
+const tabBoth = document.getElementById("tab-both");
+const waveformPaneTop = document.getElementById("waveform-pane-top");
+const waveformPaneBottom = document.getElementById("waveform-pane-bottom");
+const waveformPlayheadTop = document.getElementById("waveform-playhead-top");
+
+if (tabBoth) {
+  tabBoth.addEventListener("click", () => {
+    currentWaveformView = "both";
+    tabWaveform.classList.remove("active");
+    tabSpectrogram.classList.remove("active");
+    tabBoth.classList.add("active");
+    
+    waveformPanel.classList.add("split-view");
+    waveformPanel.dataset.view = "both";
+    
+    // Show both canvases
+    waveformCanvas.classList.remove("hidden");
+    spectrogramCanvas.classList.remove("hidden");
+    
+    // Resize and render both
+    resizeWaveformCanvas();
+    computeWaveformData().then(() => {
+      computeSpectrogram();
+    });
+  });
+}
+
+// Update existing tab handlers
+if (tabWaveform) {
+  const originalHandler = tabWaveform.onclick;
+  tabWaveform.addEventListener("click", () => {
+    waveformPanel.classList.remove("split-view");
+    waveformPanel.dataset.view = "waveform";
+    if (tabBoth) tabBoth.classList.remove("active");
+  });
+}
+
+if (tabSpectrogram) {
+  tabSpectrogram.addEventListener("click", () => {
+    waveformPanel.classList.remove("split-view");
+    waveformPanel.dataset.view = "spectrogram";
+    if (tabBoth) tabBoth.classList.remove("active");
+  });
+}
+
+// =============================================
+// PITCH CONTOUR (F0) OVERLAY
+// =============================================
+
+const pitchCanvas = document.getElementById("pitch-canvas");
+const togglePitchBtn = document.getElementById("toggle-pitch");
+let pitchCtx = null;
+let showPitchContour = false;
+let pitchData = null;
+
+if (pitchCanvas) {
+  pitchCtx = pitchCanvas.getContext("2d");
+}
+
+async function computePitchContour() {
+  if (!audioBufferCache || !pitchCtx) return;
+  
+  const channelData = audioBufferCache.getChannelData(0);
+  const sampleRate = audioBufferCache.sampleRate;
+  const duration = audioBufferCache.duration;
+  
+  // Simplified autocorrelation-based pitch detection
+  const frameSize = Math.floor(sampleRate * 0.03); // 30ms frames
+  const hopSize = Math.floor(sampleRate * 0.01);   // 10ms hop
+  const minPeriod = Math.floor(sampleRate / 500);  // Max 500Hz
+  const maxPeriod = Math.floor(sampleRate / 50);   // Min 50Hz
+  
+  pitchData = [];
+  
+  for (let i = 0; i < channelData.length - frameSize; i += hopSize) {
+    const frame = channelData.slice(i, i + frameSize);
+    const pitch = detectPitch(frame, minPeriod, maxPeriod, sampleRate);
+    pitchData.push({
+      time: i / sampleRate,
+      pitch: pitch
+    });
+  }
+  
+  drawPitchContour();
+}
+
+function detectPitch(frame, minPeriod, maxPeriod, sampleRate) {
+  // Simple autocorrelation
+  let bestCorr = 0;
+  let bestPeriod = 0;
+  
+  // Calculate RMS to check if voiced
+  let rms = 0;
+  for (let i = 0; i < frame.length; i++) {
+    rms += frame[i] * frame[i];
+  }
+  rms = Math.sqrt(rms / frame.length);
+  
+  if (rms < 0.01) return null; // Silence threshold
+  
+  for (let period = minPeriod; period < Math.min(maxPeriod, frame.length / 2); period++) {
+    let corr = 0;
+    let norm1 = 0;
+    let norm2 = 0;
+    
+    for (let i = 0; i < frame.length - period; i++) {
+      corr += frame[i] * frame[i + period];
+      norm1 += frame[i] * frame[i];
+      norm2 += frame[i + period] * frame[i + period];
+    }
+    
+    const normalizedCorr = corr / Math.sqrt(norm1 * norm2 + 1e-10);
+    
+    if (normalizedCorr > bestCorr && normalizedCorr > 0.5) {
+      bestCorr = normalizedCorr;
+      bestPeriod = period;
+    }
+  }
+  
+  if (bestPeriod > 0) {
+    return sampleRate / bestPeriod;
+  }
+  
+  return null;
+}
+
+function drawPitchContour() {
+  if (!pitchCtx || !pitchData || !showPitchContour) return;
+  
+  const canvas = pitchCanvas;
+  const width = canvas.width;
+  const height = canvas.height;
+  
+  pitchCtx.clearRect(0, 0, width, height);
+  
+  if (!audioEl.duration) return;
+  
+  const duration = audioEl.duration;
+  const minPitch = 50;
+  const maxPitch = 500;
+  
+  // Calculate visible range
+  let visibleStartTime = 0;
+  let visibleEndTime = duration;
+  
+  if (waveformZoom > 1 && waveformData) {
+    const totalWidth = waveformData.length;
+    const canvasWidth = width / (window.devicePixelRatio || 1);
+    visibleStartTime = (waveformScrollOffset / totalWidth) * duration;
+    visibleEndTime = ((waveformScrollOffset + canvasWidth) / totalWidth) * duration;
+  }
+  
+  pitchCtx.strokeStyle = "#00ff88";
+  pitchCtx.lineWidth = 2;
+  pitchCtx.beginPath();
+  
+  let started = false;
+  
+  pitchData.forEach((point, i) => {
+    if (point.time < visibleStartTime || point.time > visibleEndTime) return;
+    if (point.pitch === null) {
+      started = false;
+      return;
+    }
+    
+    const x = ((point.time - visibleStartTime) / (visibleEndTime - visibleStartTime)) * width;
+    const y = height - ((point.pitch - minPitch) / (maxPitch - minPitch)) * height;
+    
+    if (!started) {
+      pitchCtx.moveTo(x, y);
+      started = true;
+    } else {
+      pitchCtx.lineTo(x, y);
+    }
+  });
+  
+  pitchCtx.stroke();
+}
+
+if (togglePitchBtn) {
+  togglePitchBtn.addEventListener("click", async () => {
+    showPitchContour = !showPitchContour;
+    togglePitchBtn.classList.toggle("active", showPitchContour);
+    
+    if (showPitchContour && !pitchData && audioBufferCache) {
+      await computePitchContour();
+    } else if (showPitchContour) {
+      drawPitchContour();
+    } else if (pitchCtx) {
+      pitchCtx.clearRect(0, 0, pitchCanvas.width, pitchCanvas.height);
+    }
+  });
+}
+
+// =============================================
+// CURSOR MEASUREMENT DISPLAY
+// =============================================
+
+const cursorTimeEl = document.getElementById("cursor-time");
+const cursorFreqEl = document.getElementById("cursor-freq");
+
+const splitContainer = document.getElementById("waveform-split-container");
+if (splitContainer) {
+  splitContainer.addEventListener("mousemove", (e) => {
+    const rect = splitContainer.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const width = rect.width;
+    const height = rect.height;
+    
+    if (!audioEl.duration) return;
+    
+    const duration = audioEl.duration;
+    let time;
+    
+    if (waveformZoom > 1 && waveformData) {
+      const totalWidth = waveformData.length;
+      const visibleStartTime = (waveformScrollOffset / totalWidth) * duration;
+      const visibleDuration = (width / totalWidth) * duration;
+      time = visibleStartTime + (x / width) * visibleDuration;
+    } else {
+      time = (x / width) * duration;
+    }
+    
+    // Frequency (assuming spectrogram view, linear scale 0-8000Hz)
+    const maxFreq = audioBufferCache ? audioBufferCache.sampleRate / 2 : 8000;
+    const freq = maxFreq * (1 - y / height);
+    
+    if (cursorTimeEl) {
+      cursorTimeEl.textContent = formatTimeMs(time);
+    }
+    if (cursorFreqEl && (currentWaveformView === "spectrogram" || currentWaveformView === "both")) {
+      cursorFreqEl.textContent = `${Math.round(freq)} Hz`;
+      cursorFreqEl.style.display = "";
+    } else if (cursorFreqEl) {
+      cursorFreqEl.style.display = "none";
+    }
+  });
+}
+
+// =============================================
+// IPA CHARACTER PICKER
+// =============================================
+
+const ipaPicker = document.getElementById("ipa-picker");
+const ipaGrid = document.getElementById("ipa-grid");
+const ipaPickerClose = document.getElementById("ipa-picker-close");
+let currentEditingInput = null;
+
+const IPA_CHARS = {
+  consonants: [
+    "p", "b", "t", "d", "ʈ", "ɖ", "c", "ɟ", "k", "ɡ", "q", "ɢ", "ʔ",
+    "m", "ɱ", "n", "ɳ", "ɲ", "ŋ", "ɴ",
+    "ʙ", "r", "ʀ",
+    "ⱱ", "ɾ", "ɽ",
+    "ɸ", "β", "f", "v", "θ", "ð", "s", "z", "ʃ", "ʒ", "ʂ", "ʐ", "ç", "ʝ",
+    "x", "ɣ", "χ", "ʁ", "ħ", "ʕ", "h", "ɦ",
+    "ɬ", "ɮ",
+    "ʋ", "ɹ", "ɻ", "j", "ɰ",
+    "l", "ɭ", "ʎ", "ʟ",
+    "ʘ", "ǀ", "ǃ", "ǂ", "ǁ",
+    "ɓ", "ɗ", "ʄ", "ɠ", "ʛ",
+    "w", "ʍ", "ɥ", "ʜ", "ʢ", "ʡ", "ɕ", "ʑ", "ɺ", "ɧ"
+  ],
+  vowels: [
+    "i", "y", "ɨ", "ʉ", "ɯ", "u",
+    "ɪ", "ʏ", "ʊ",
+    "e", "ø", "ɘ", "ɵ", "ɤ", "o",
+    "ə",
+    "ɛ", "œ", "ɜ", "ɞ", "ʌ", "ɔ",
+    "æ", "ɐ",
+    "a", "ɶ", "ɑ", "ɒ"
+  ],
+  diacritics: [
+    "ˈ", "ˌ", "ː", "ˑ", "̆", ".", "‿",
+    "̥", "̬", "ʰ", "̹", "̜", "̟", "̠", "̈", "̽",
+    "̩", "̯", "˞", "̤", "̰", "̼",
+    "ʷ", "ʲ", "ˠ", "ˤ", "̴",
+    "̝", "̞", "̘", "̙", "̪", "̺", "̻", "̃", "ⁿ", "ˡ",
+    "̚"
+  ],
+  tones: [
+    "˥", "˦", "˧", "˨", "˩",
+    "̋", "́", "̄", "̀", "̏",
+    "̌", "̂", "᷄", "᷅", "᷈",
+    "↗", "↘"
+  ]
+};
+
+function renderIPAGrid(category) {
+  if (!ipaGrid) return;
+  
+  ipaGrid.innerHTML = "";
+  const chars = IPA_CHARS[category] || [];
+  
+  chars.forEach(char => {
+    const btn = document.createElement("button");
+    btn.className = "ipa-char";
+    btn.textContent = char;
+    btn.title = char;
+    btn.addEventListener("click", () => insertIPAChar(char));
+    ipaGrid.appendChild(btn);
+  });
+}
+
+function insertIPAChar(char) {
+  if (currentEditingInput) {
+    const start = currentEditingInput.selectionStart;
+    const end = currentEditingInput.selectionEnd;
+    const value = currentEditingInput.value;
+    currentEditingInput.value = value.slice(0, start) + char + value.slice(end);
+    currentEditingInput.selectionStart = currentEditingInput.selectionEnd = start + char.length;
+    currentEditingInput.focus();
+  } else {
+    // Try to insert into currently focused editable element
+    const activeEl = document.activeElement;
+    if (activeEl && (activeEl.isContentEditable || activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA")) {
+      if (activeEl.isContentEditable) {
+        document.execCommand("insertText", false, char);
+      } else {
+        const start = activeEl.selectionStart;
+        const end = activeEl.selectionEnd;
+        const value = activeEl.value;
+        activeEl.value = value.slice(0, start) + char + value.slice(end);
+        activeEl.selectionStart = activeEl.selectionEnd = start + char.length;
+      }
+    }
+  }
+}
+
+function showIPAPicker(inputEl = null) {
+  currentEditingInput = inputEl;
+  if (ipaPicker) {
+    ipaPicker.classList.remove("hidden");
+    renderIPAGrid("consonants");
+  }
+}
+
+function hideIPAPicker() {
+  if (ipaPicker) {
+    ipaPicker.classList.add("hidden");
+  }
+  currentEditingInput = null;
+}
+
+if (ipaPickerClose) {
+  ipaPickerClose.addEventListener("click", hideIPAPicker);
+}
+
+// IPA tab switching
+document.querySelectorAll(".ipa-tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".ipa-tab").forEach(t => t.classList.remove("active"));
+    tab.classList.add("active");
+    renderIPAGrid(tab.dataset.category);
+  });
+});
+
+// =============================================
+// ENHANCED KEYBOARD SHORTCUTS
+// =============================================
+
+// Override the existing keyboard handler with enhanced version
+document.removeEventListener("keydown", document.keydownHandler);
+
+document.addEventListener("keydown", (e) => {
+  // Don't trigger shortcuts when editing text (except specific ones)
+  const isEditing = e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.isContentEditable;
+  
+  if (isEditing) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      if (editState && editState.el) {
+        editState.el.textContent = editState.original;
+        finalizeInlineEdit(editState.el, true);
+      }
+      hideIPAPicker();
+    }
+    return;
+  }
+  
+  switch (e.key) {
+    case " ": // Space - Play/Pause
+      e.preventDefault();
+      if (audioEl.paused) {
+        audioEl.play();
+      } else {
+        audioEl.pause();
+      }
+      break;
+      
+    case "ArrowLeft":
+      e.preventDefault();
+      if (e.shiftKey) {
+        audioEl.currentTime = Math.max(0, audioEl.currentTime - 10);
+      } else {
+        audioEl.currentTime = Math.max(0, audioEl.currentTime - 5);
+      }
+      break;
+      
+    case "ArrowRight":
+      e.preventDefault();
+      if (e.shiftKey) {
+        audioEl.currentTime = Math.min(audioEl.duration || 0, audioEl.currentTime + 10);
+      } else {
+        audioEl.currentTime = Math.min(audioEl.duration || 0, audioEl.currentTime + 5);
+      }
+      break;
+      
+    case "ArrowUp":
+      e.preventDefault();
+      navigateSegment(-1);
+      break;
+      
+    case "ArrowDown":
+      e.preventDefault();
+      navigateSegment(1);
+      break;
+      
+    case "Home":
+      e.preventDefault();
+      audioEl.currentTime = 0;
+      break;
+      
+    case "End":
+      e.preventDefault();
+      audioEl.currentTime = audioEl.duration || 0;
+      break;
+      
+    case "[":
+      e.preventDefault();
+      setPlaybackSpeed(Math.max(0.25, currentSpeed - 0.25));
+      break;
+      
+    case "]":
+      e.preventDefault();
+      setPlaybackSpeed(Math.min(3, currentSpeed + 0.25));
+      break;
+      
+    case "w":
+    case "W":
+      e.preventDefault();
+      toggleWaveformPanel();
+      break;
+      
+    case "1":
+      e.preventDefault();
+      if (isWaveformVisible && tabWaveform) tabWaveform.click();
+      break;
+      
+    case "2":
+      e.preventDefault();
+      if (isWaveformVisible && tabSpectrogram) tabSpectrogram.click();
+      break;
+      
+    case "3":
+      e.preventDefault();
+      if (isWaveformVisible && tabBoth) tabBoth.click();
+      break;
+      
+    case "f":
+    case "F":
+      e.preventDefault();
+      if (togglePitchBtn) togglePitchBtn.click();
+      break;
+      
+    case "b":
+    case "B":
+      e.preventDefault();
+      if (toggleWordsBtn) toggleWordsBtn.click();
+      break;
+      
+    case "l":
+    case "L":
+      e.preventDefault();
+      toggleLoop();
+      break;
+      
+    case "p":
+      if (!e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        playSelection();
+      }
+      break;
+      
+    case "i":
+    case "I":
+      e.preventDefault();
+      if (ipaPicker.classList.contains("hidden")) {
+        showIPAPicker();
+      } else {
+        hideIPAPicker();
+      }
+      break;
+      
+    case "+":
+    case "=":
+      e.preventDefault();
+      if (zoomInBtn) zoomInBtn.click();
+      break;
+      
+    case "-":
+    case "_":
+      e.preventDefault();
+      if (zoomOutBtn) zoomOutBtn.click();
+      break;
+      
+    case "?":
+      e.preventDefault();
+      toggleShortcutsModal();
+      break;
+      
+    case "Escape":
+      if (!shortcutsModal.classList.contains("hidden")) {
+        e.preventDefault();
+        shortcutsModal.classList.add("hidden");
+      }
+      hideIPAPicker();
+      clearSelection();
+      break;
+  }
+});
+
+// =============================================
+// FREQUENCY AXIS RENDERING
+// =============================================
+
+const freqAxis = document.getElementById("waveform-freq-axis");
+
+function updateFrequencyAxis() {
+  if (!freqAxis) return;
+  
+  freqAxis.innerHTML = "";
+  
+  const maxFreq = audioBufferCache ? audioBufferCache.sampleRate / 2 : 8000;
+  const freqMarks = [0, 1000, 2000, 4000, 6000, 8000].filter(f => f <= maxFreq);
+  
+  freqMarks.reverse().forEach(freq => {
+    const mark = document.createElement("div");
+    mark.className = "freq-mark";
+    mark.textContent = freq >= 1000 ? `${freq/1000}k` : freq;
+    freqAxis.appendChild(mark);
+  });
+}
+
+// =============================================
+// UPDATE VISUALIZATION HOOKS
+// =============================================
+
+// Extend toggleWaveformPanel to initialize new features
+const originalToggleWaveformPanel = toggleWaveformPanel;
+window.toggleWaveformPanel = function() {
+  originalToggleWaveformPanel();
+  
+  if (isWaveformVisible) {
+    renderWordsOnWaveform();
+    updateFrequencyAxis();
+    updateSelectionDisplay();
+    
+    if (showPitchContour && !pitchData && audioBufferCache) {
+      computePitchContour();
+    }
+  }
+};
+
+// Extend computeSpectrogram to also update related displays
+const originalComputeSpectrogram = computeSpectrogram;
+window.computeSpectrogram = async function() {
+  await originalComputeSpectrogram();
+  renderWordsOnWaveform();
+  updateSelectionDisplay();
+  if (showPitchContour) {
+    drawPitchContour();
+  }
+};
+
+// Ensure words update when segments change
+const originalRenderSegmentsOnWaveform = renderSegmentsOnWaveform;
+window.renderSegmentsOnWaveform = function() {
+  originalRenderSegmentsOnWaveform();
+  renderWordsOnWaveform();
+};
+
+console.log("OmniTranscribe Pro loaded. Press ? for keyboard shortcuts, I for IPA picker.");
