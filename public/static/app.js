@@ -1849,6 +1849,7 @@ const spectrogramCanvas = document.getElementById("spectrogram-canvas");
 const waveformPlayhead = document.getElementById("waveform-playhead");
 const waveformSegments = document.getElementById("waveform-segments");
 const waveformTimeRuler = document.getElementById("waveform-time-ruler");
+const waveformCanvasContainer = document.querySelector(".waveform-canvas-container");
 const toggleWaveformBtn = document.getElementById("toggle-waveform");
 const tabWaveform = document.getElementById("tab-waveform");
 const tabSpectrogram = document.getElementById("tab-spectrogram");
@@ -1880,21 +1881,35 @@ if (spectrogramCanvas) {
 
 function initAudioContext() {
   if (audioContext) return;
-  
+
   try {
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
     analyser = audioContext.createAnalyser();
     analyser.fftSize = 2048;
     analyser.smoothingTimeConstant = 0.8;
-    
-    // Connect audio element to analyser
-    if (!audioSource && audioEl.src) {
+  } catch (err) {
+    console.warn("Web Audio API not supported:", err);
+  }
+}
+
+function ensureAudioSource() {
+  if (!audioContext) {
+    initAudioContext();
+  }
+  if (!audioContext || !analyser) return;
+
+  if (audioContext.state === "suspended") {
+    audioContext.resume();
+  }
+
+  if (!audioSource && audioEl.src) {
+    try {
       audioSource = audioContext.createMediaElementSource(audioEl);
       audioSource.connect(analyser);
       analyser.connect(audioContext.destination);
+    } catch (err) {
+      console.warn("Could not connect audio source:", err);
     }
-  } catch (err) {
-    console.warn("Web Audio API not supported:", err);
   }
 }
 
@@ -1904,11 +1919,8 @@ function toggleWaveformPanel() {
   toggleWaveformBtn.setAttribute("aria-pressed", isWaveformVisible);
   
   if (isWaveformVisible) {
-    initAudioContext();
+    ensureAudioSource();
     resizeWaveformCanvas();
-    if (audioContext?.state === "suspended") {
-      audioContext.resume();
-    }
     computeWaveformData();
     startVisualization();
     renderSegmentsOnWaveform();
@@ -2378,53 +2390,38 @@ if (zoomOutBtn) {
   });
 }
 
-// Click on waveform/spectrogram to seek and toggle play/pause
+// Click on waveform/spectrogram container to seek and toggle play/pause
 function handleCanvasClick(e) {
-  const canvas = e.target;
-  const rect = canvas.getBoundingClientRect();
+  if (!audioEl.duration) return;
+
+  const rect = waveformCanvasContainer.getBoundingClientRect();
   const x = e.clientX - rect.left;
   const canvasWidth = rect.width;
-  
+
   let newTime;
-  let currentPosition;
-  
+
   if (waveformZoom > 1 && waveformData && currentWaveformView === "waveform") {
     // When zoomed, calculate position relative to scroll offset
     const totalWidth = waveformData.length;
     const clickPositionInData = x + waveformScrollOffset;
     newTime = (clickPositionInData / totalWidth) * audioEl.duration;
-    currentPosition = (audioEl.currentTime / audioEl.duration) * totalWidth - waveformScrollOffset;
   } else {
     newTime = (x / canvasWidth) * audioEl.duration;
-    currentPosition = (audioEl.currentTime / audioEl.duration) * canvasWidth;
   }
-  
-  // If clicking near current position (within 2% of width), toggle play/pause
-  const clickDistance = Math.abs(x - currentPosition);
-  
-  if (clickDistance < canvasWidth * 0.02) {
-    // Toggle play/pause
-    if (audioEl.paused) {
-      audioEl.play();
-    } else {
-      audioEl.pause();
-    }
+
+  // Seek to clicked position (clamp to valid range)
+  audioEl.currentTime = Math.max(0, Math.min(newTime, audioEl.duration));
+
+  // Toggle play/pause on every click
+  if (audioEl.paused) {
+    audioEl.play();
   } else {
-    // Seek to clicked position (clamp to valid range)
-    audioEl.currentTime = Math.max(0, Math.min(newTime, audioEl.duration));
-    // Start playing if not already
-    if (audioEl.paused) {
-      audioEl.play();
-    }
+    audioEl.pause();
   }
 }
 
-if (waveformCanvas) {
-  waveformCanvas.addEventListener("click", handleCanvasClick);
-}
-
-if (spectrogramCanvas) {
-  spectrogramCanvas.addEventListener("click", handleCanvasClick);
+if (waveformCanvasContainer) {
+  waveformCanvasContainer.addEventListener("click", handleCanvasClick);
 }
 
 // =============================================
@@ -2809,6 +2806,7 @@ audioEl.addEventListener("timeupdate", () => {
 // Re-initialize visualization when audio source changes
 audioEl.addEventListener("loadedmetadata", () => {
   if (isWaveformVisible) {
+    ensureAudioSource();
     computeWaveformData();
     updateTimeRuler();
     renderSegmentsOnWaveform();
