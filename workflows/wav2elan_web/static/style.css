@@ -1,22 +1,22 @@
 :root {
-  --bg: #f9f7f4;
-  --bg-warm: #f1ece4;
-  --ink: #191613;
-  --ink-soft: #4b453e;
-  --ink-muted: #90897f;
-  --accent: #c45d3e;
-  --accent-soft: #d6826a;
-  --accent-glow: rgba(196, 93, 62, 0.2);
-  --card: #fff;
-  --card-border: #e4ded6;
-  --sidebar: #f4efe8;
-  --sidebar-border: #ded6cc;
+  --bg: #ffffff;
+  --bg-warm: #f7f7f7;
+  --ink: #000000;
+  --ink-soft: #1a1a1a;
+  --ink-muted: #4d4d4d;
+  --accent: #000000;
+  --accent-soft: #333333;
+  --accent-glow: rgba(0, 0, 0, 0.08);
+  --card: #ffffff;
+  --card-border: #d9d9d9;
+  --sidebar: #fafafa;
+  --sidebar-border: #e6e6e6;
   --speaker-a: #3d6b99;
   --speaker-b: #7b5e9b;
   --speaker-c: #4a8f7a;
   --mono: "JetBrains Mono", monospace;
-  --serif: "Cormorant Garamond", Georgia, serif;
-  --sans: "Source Sans 3", system-ui, sans-serif;
+  --serif: "Open Sans", system-ui, sans-serif;
+  --sans: "Open Sans", system-ui, sans-serif;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -37,7 +37,7 @@ body {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  opacity: 0.03;
+  opacity: 0.015;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
   z-index: 9999;
 }

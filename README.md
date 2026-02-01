@@ -1,6 +1,6 @@
-# Omnilingual ASR - Speech Transcription with Gemini API
+# OmniScribe - Speech Transcription with Gemini API
 
-A web-based speech transcription tool powered by Google's Gemini API. Features automatic speaker diarization, language detection, emotion analysis, and translation support for multilingual audio.
+OmniScribe is a web-based speech transcription tool powered by Google's Gemini API. Features automatic speaker diarization, language detection, emotion analysis, and translation support for multilingual audio.
 
 ## Features
 
