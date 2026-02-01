@@ -1151,7 +1151,7 @@ ${tierAnns}
   }
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<ANNOTATION_DOCUMENT AUTHOR="OmniScribe" DATE="${new Date().toISOString()}" FORMAT="3.0" VERSION="3.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.mpi.nl/tools/elan/EAFv3.0.xsd">
+<ANNOTATION_DOCUMENT AUTHOR="OmniTranscribe" DATE="${new Date().toISOString()}" FORMAT="3.0" VERSION="3.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.mpi.nl/tools/elan/EAFv3.0.xsd">
     <HEADER MEDIA_FILE="" TIME_UNITS="milliseconds">
         <MEDIA_DESCRIPTOR MEDIA_URL="${escapeXml(data.audio_url)}" MIME_TYPE="audio/x-wav"/>
     </HEADER>
@@ -1792,6 +1792,49 @@ async function uploadFiles(files, options = {}) {
     renderHistoryList();
     uploadPlaceholders = [];
   }
+}
+
+// Citation toggle and copy
+const citeBtn = document.getElementById("cite-btn");
+const citeBox = document.getElementById("cite-box");
+const citeCopy = document.getElementById("cite-copy");
+const citeText = document.getElementById("cite-text");
+
+if (citeBtn && citeBox) {
+  citeBtn.addEventListener("click", () => {
+    citeBox.classList.toggle("hidden");
+  });
+}
+
+if (citeCopy && citeText) {
+  citeCopy.addEventListener("click", async () => {
+    // Get plain text version (without HTML tags)
+    const plainText = 'Roll, Nathan, Lorena Martin Rodriguez, and Dan Jurafsky. OmniTranscribe. Stanford Linguistics, 2025. Web.';
+    
+    try {
+      await navigator.clipboard.writeText(plainText);
+      citeCopy.textContent = "Copied!";
+      citeCopy.classList.add("copied");
+      setTimeout(() => {
+        citeCopy.textContent = "Copy";
+        citeCopy.classList.remove("copied");
+      }, 2000);
+    } catch (err) {
+      // Fallback for older browsers
+      const textarea = document.createElement("textarea");
+      textarea.value = plainText;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+      citeCopy.textContent = "Copied!";
+      citeCopy.classList.add("copied");
+      setTimeout(() => {
+        citeCopy.textContent = "Copy";
+        citeCopy.classList.remove("copied");
+      }, 2000);
+    }
+  });
 }
 
 fetchHistory();

@@ -1323,3 +1323,106 @@ body {
   color: var(--ink-muted);
   margin-top: 2px;
 }
+
+/* Cite this tool section */
+.sidebar-cite {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid var(--sidebar-border);
+}
+
+.cite-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--ink-muted);
+  font-family: var(--sans);
+  font-size: 0.75rem;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.15s var(--ease-out);
+}
+
+.cite-btn:hover {
+  background: var(--bg-warm);
+  color: var(--ink-soft);
+}
+
+.cite-btn svg {
+  flex-shrink: 0;
+}
+
+.cite-box {
+  margin-top: 10px;
+  padding: 12px 14px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  animation: cite-expand 0.2s var(--ease-out);
+}
+
+.cite-box.hidden {
+  display: none;
+}
+
+@keyframes cite-expand {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.cite-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-muted);
+  margin-bottom: 6px;
+}
+
+.cite-text {
+  font-family: var(--sans);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  margin-bottom: 10px;
+}
+
+.cite-text em {
+  font-style: italic;
+}
+
+.cite-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border: 1px solid var(--card-border);
+  background: var(--bg);
+  color: var(--ink-muted);
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s var(--ease-out);
+}
+
+.cite-copy:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.cite-copy.copied {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
