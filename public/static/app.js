@@ -2805,6 +2805,25 @@ if (skipForwardBtn) {
 }
 
 // =============================================
+// GLOBAL SPACEBAR PLAY/PAUSE
+// =============================================
+
+document.addEventListener("keydown", (e) => {
+  const isSpace = e.code === "Space" || e.key === " " || e.key === "Spacebar";
+  if (!isSpace) return;
+  if (editState) return;
+  if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+  if (e.target && e.target.isContentEditable) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (audioEl.paused) {
+    audioEl.play();
+  } else {
+    audioEl.pause();
+  }
+}, { capture: true });
+
+// =============================================
 // KEYBOARD SHORTCUTS
 // =============================================
 
