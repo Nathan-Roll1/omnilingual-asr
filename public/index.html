@@ -290,20 +290,8 @@
             </svg>
             Spectrogram
           </button>
-          <button class="waveform-tab" data-view="both" id="tab-both">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="3" width="18" height="8" rx="1"/>
-              <rect x="3" y="13" width="18" height="8" rx="1"/>
-            </svg>
-            Both
-          </button>
         </div>
         <div class="waveform-controls">
-          <button class="waveform-ctrl-btn" id="toggle-pitch" title="Toggle pitch contour (F0)">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M3 20Q8 10 12 12T21 4" stroke-linecap="round"/>
-            </svg>
-          </button>
           <button class="waveform-ctrl-btn" id="toggle-words" title="Toggle word boundaries">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M4 7h16M4 12h10M4 17h14" stroke-linecap="round"/>
@@ -341,7 +329,6 @@
         <!-- Canvases -->
         <canvas id="waveform-canvas"></canvas>
         <canvas id="spectrogram-canvas"></canvas>
-        <canvas id="pitch-canvas"></canvas>
         <!-- Overlays on top of canvases -->
         <div class="waveform-segments" id="waveform-segments"></div>
         <div class="waveform-words" id="waveform-words"></div>
@@ -466,8 +453,6 @@
             <div class="shortcut"><kbd>W</kbd><span>Toggle waveform panel</span></div>
             <div class="shortcut"><kbd>1</kbd><span>Waveform view</span></div>
             <div class="shortcut"><kbd>2</kbd><span>Spectrogram view</span></div>
-            <div class="shortcut"><kbd>3</kbd><span>Split view (both)</span></div>
-            <div class="shortcut"><kbd>F</kbd><span>Toggle pitch (F0)</span></div>
             <div class="shortcut"><kbd>B</kbd><span>Toggle word boundaries</span></div>
             <div class="shortcut"><kbd>+</kbd><span>Zoom in</span></div>
             <div class="shortcut"><kbd>-</kbd><span>Zoom out</span></div>

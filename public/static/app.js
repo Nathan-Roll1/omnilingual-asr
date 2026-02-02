@@ -1963,15 +1963,6 @@ function resizeWaveformCanvas() {
   if (spectrogramCtx) {
     spectrogramCtx.setTransform(1, 0, 0, 1, 0, 0);
   }
-  
-  // Also resize pitch canvas if it exists
-  const pitchCanvas = document.getElementById("pitch-canvas");
-  if (pitchCanvas) {
-    pitchCanvas.width = rect.width * dpr;
-    pitchCanvas.height = rect.height * dpr;
-    pitchCanvas.style.width = `${rect.width}px`;
-    pitchCanvas.style.height = `${rect.height}px`;
-  }
 }
 
 let audioBufferCache = null; // Cache decoded audio buffer
@@ -3528,44 +3519,12 @@ if (waveformOverlays) {
   });
 }
 
-// =============================================
-// SPLIT VIEW (WAVEFORM + SPECTROGRAM)
-// =============================================
-
-const tabBoth = document.getElementById("tab-both");
-const waveformPaneTop = document.getElementById("waveform-pane-top");
-const waveformPaneBottom = document.getElementById("waveform-pane-bottom");
-const waveformPlayheadTop = document.getElementById("waveform-playhead-top");
-
-if (tabBoth) {
-  tabBoth.addEventListener("click", () => {
-    currentWaveformView = "both";
-    tabWaveform.classList.remove("active");
-    tabSpectrogram.classList.remove("active");
-    tabBoth.classList.add("active");
-    
-    waveformPanel.classList.add("split-view");
-    waveformPanel.dataset.view = "both";
-    
-    // Show both canvases
-    waveformCanvas.classList.remove("hidden");
-    spectrogramCanvas.classList.remove("hidden");
-    
-    // Resize and render both
-    resizeWaveformCanvas();
-    computeWaveformData().then(() => {
-      computeSpectrogram();
-    });
-  });
-}
-
 // Update existing tab handlers
 if (tabWaveform) {
   const originalHandler = tabWaveform.onclick;
   tabWaveform.addEventListener("click", () => {
     waveformPanel.classList.remove("split-view");
     waveformPanel.dataset.view = "waveform";
-    if (tabBoth) tabBoth.classList.remove("active");
   });
 }
 
@@ -3573,156 +3532,6 @@ if (tabSpectrogram) {
   tabSpectrogram.addEventListener("click", () => {
     waveformPanel.classList.remove("split-view");
     waveformPanel.dataset.view = "spectrogram";
-    if (tabBoth) tabBoth.classList.remove("active");
-  });
-}
-
-// =============================================
-// PITCH CONTOUR (F0) OVERLAY
-// =============================================
-
-const pitchCanvas = document.getElementById("pitch-canvas");
-const togglePitchBtn = document.getElementById("toggle-pitch");
-let pitchCtx = null;
-let showPitchContour = false;
-let pitchData = null;
-
-if (pitchCanvas) {
-  pitchCtx = pitchCanvas.getContext("2d");
-}
-
-async function computePitchContour() {
-  if (!audioBufferCache || !pitchCtx) return;
-  
-  const channelData = audioBufferCache.getChannelData(0);
-  const sampleRate = audioBufferCache.sampleRate;
-  const duration = audioBufferCache.duration;
-  
-  // Simplified autocorrelation-based pitch detection
-  const frameSize = Math.floor(sampleRate * 0.03); // 30ms frames
-  const hopSize = Math.floor(sampleRate * 0.01);   // 10ms hop
-  const minPeriod = Math.floor(sampleRate / 500);  // Max 500Hz
-  const maxPeriod = Math.floor(sampleRate / 50);   // Min 50Hz
-  
-  pitchData = [];
-  
-  for (let i = 0; i < channelData.length - frameSize; i += hopSize) {
-    const frame = channelData.slice(i, i + frameSize);
-    const pitch = detectPitch(frame, minPeriod, maxPeriod, sampleRate);
-    pitchData.push({
-      time: i / sampleRate,
-      pitch: pitch
-    });
-  }
-  
-  drawPitchContour();
-}
-
-function detectPitch(frame, minPeriod, maxPeriod, sampleRate) {
-  // Simple autocorrelation
-  let bestCorr = 0;
-  let bestPeriod = 0;
-  
-  // Calculate RMS to check if voiced
-  let rms = 0;
-  for (let i = 0; i < frame.length; i++) {
-    rms += frame[i] * frame[i];
-  }
-  rms = Math.sqrt(rms / frame.length);
-  
-  if (rms < 0.01) return null; // Silence threshold
-  
-  for (let period = minPeriod; period < Math.min(maxPeriod, frame.length / 2); period++) {
-    let corr = 0;
-    let norm1 = 0;
-    let norm2 = 0;
-    
-    for (let i = 0; i < frame.length - period; i++) {
-      corr += frame[i] * frame[i + period];
-      norm1 += frame[i] * frame[i];
-      norm2 += frame[i + period] * frame[i + period];
-    }
-    
-    const normalizedCorr = corr / Math.sqrt(norm1 * norm2 + 1e-10);
-    
-    if (normalizedCorr > bestCorr && normalizedCorr > 0.5) {
-      bestCorr = normalizedCorr;
-      bestPeriod = period;
-    }
-  }
-  
-  if (bestPeriod > 0) {
-    return sampleRate / bestPeriod;
-  }
-  
-  return null;
-}
-
-function drawPitchContour() {
-  if (!pitchCtx || !pitchData || !showPitchContour) return;
-  
-  const canvas = pitchCanvas;
-  const width = canvas.width;
-  const height = canvas.height;
-  
-  pitchCtx.clearRect(0, 0, width, height);
-  
-  if (!audioEl.duration) return;
-  
-  const duration = audioEl.duration;
-  const minPitch = 50;
-  const maxPitch = 500;
-  
-  // Calculate visible range
-  let visibleStartTime = 0;
-  let visibleEndTime = duration;
-  
-  if (waveformZoom > 1 && waveformData) {
-    const totalWidth = waveformData.length;
-    const canvasWidth = width / (window.devicePixelRatio || 1);
-    visibleStartTime = (waveformScrollOffset / totalWidth) * duration;
-    visibleEndTime = ((waveformScrollOffset + canvasWidth) / totalWidth) * duration;
-  }
-  
-  pitchCtx.strokeStyle = "#00ff88";
-  pitchCtx.lineWidth = 2;
-  pitchCtx.beginPath();
-  
-  let started = false;
-  
-  pitchData.forEach((point, i) => {
-    if (point.time < visibleStartTime || point.time > visibleEndTime) return;
-    if (point.pitch === null) {
-      started = false;
-      return;
-    }
-    
-    const x = ((point.time - visibleStartTime) / (visibleEndTime - visibleStartTime)) * width;
-    const y = height - ((point.pitch - minPitch) / (maxPitch - minPitch)) * height;
-    
-    if (!started) {
-      pitchCtx.moveTo(x, y);
-      started = true;
-    } else {
-      pitchCtx.lineTo(x, y);
-    }
-  });
-  
-  pitchCtx.stroke();
-}
-
-if (togglePitchBtn) {
-  togglePitchBtn.addEventListener("click", async () => {
-    showPitchContour = !showPitchContour;
-    togglePitchBtn.classList.toggle("active", showPitchContour);
-    
-    if (showPitchContour && !pitchData && audioBufferCache) {
-      await computePitchContour();
-    } else if (showPitchContour) {
-      drawPitchContour();
-    } else if (pitchCtx) {
-      pitchCtx.clearRect(0, 0, pitchCanvas.width, pitchCanvas.height);
-    }
   });
 }
 
@@ -3987,17 +3796,6 @@ document.addEventListener("keydown", (e) => {
       if (isWaveformVisible && tabSpectrogram) tabSpectrogram.click();
       break;
       
-    case "3":
-      e.preventDefault();
-      if (isWaveformVisible && tabBoth) tabBoth.click();
-      break;
-      
-    case "f":
-    case "F":
-      e.preventDefault();
-      if (togglePitchBtn) togglePitchBtn.click();
-      break;
-      
     case "b":
     case "B":
       e.preventDefault();
@@ -4090,10 +3888,6 @@ window.toggleWaveformPanel = function() {
     renderWordsOnWaveform();
     updateFrequencyAxis();
     updateSelectionDisplay();
-    
-    if (showPitchContour && !pitchData && audioBufferCache) {
-      computePitchContour();
-    }
   }
 };
 
@@ -4103,9 +3897,6 @@ window.computeSpectrogram = async function() {
   await originalComputeSpectrogram();
   renderWordsOnWaveform();
   updateSelectionDisplay();
-  if (showPitchContour) {
-    drawPitchContour();
-  }
 };
 
 // Ensure words update when segments change

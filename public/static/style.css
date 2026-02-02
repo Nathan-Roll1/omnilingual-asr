@@ -1537,8 +1537,7 @@ body {
 }
 
 #waveform-canvas,
-#spectrogram-canvas,
-#pitch-canvas {
+#spectrogram-canvas {
   position: absolute;
   top: 0;
   left: 0;
@@ -1549,11 +1548,6 @@ body {
 
 #spectrogram-canvas {
   z-index: 2;
-}
-
-#pitch-canvas {
-  z-index: 3;
-  pointer-events: none;
 }
 
 #spectrogram-canvas.hidden,
