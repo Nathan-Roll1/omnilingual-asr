@@ -2250,8 +2250,9 @@ async function computeSpectrogram() {
     
     for (let y = 0; y < height; y++) {
       // Linear freq mapping: 0 to Nyquist
-      // Flip y (0 is top)
-      const freqIndex = Math.floor((1 - y / height) * frequencyBinCount);
+      // Flip y (0 is top) and map full height to full bin range
+      const normalizedY = height > 1 ? y / (height - 1) : 0;
+      const freqIndex = Math.floor((1 - normalizedY) * (frequencyBinCount - 1));
       const magnitude = spectrum[freqIndex] || 0;
       
       // Log magnitude for visibility
@@ -2670,7 +2671,7 @@ if (zoomOutBtn) {
   });
 }
 
-// Click on waveform/spectrogram container to seek and toggle play/pause
+// Click on waveform/spectrogram container to seek
 function handleCanvasClick(e) {
   if (!audioEl.duration || !waveformCanvasContainer) return;
 
@@ -2701,12 +2702,11 @@ function handleCanvasClick(e) {
   // Seek to clicked position (clamp to valid range)
   audioEl.currentTime = Math.max(0, Math.min(newTime, audioEl.duration));
 
-  // Toggle play/pause on every click
-  if (audioEl.paused) {
+  // If already playing, keep playing. If paused, stay paused.
+  if (!audioEl.paused) {
     audioEl.play();
-  } else {
-    audioEl.pause();
   }
+  updatePlayhead();
 }
 
 if (waveformCanvasContainer) {
