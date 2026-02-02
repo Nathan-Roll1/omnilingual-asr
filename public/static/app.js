@@ -887,6 +887,7 @@ playPauseBtn.addEventListener("click", () => {
   } else {
     audioEl.pause();
   }
+  playPauseBtn.blur(); // Release focus so spacebar works globally
 });
 
 progressInput.addEventListener("input", () => {
@@ -3905,5 +3906,12 @@ window.renderSegmentsOnWaveform = function() {
   originalRenderSegmentsOnWaveform();
   renderWordsOnWaveform();
 };
+
+// Blur buttons after click to ensure spacebar works for play/pause globally
+document.addEventListener("click", (e) => {
+  if (e.target.tagName === "BUTTON") {
+    e.target.blur();
+  }
+});
 
 console.log("OmniTranscribe Pro loaded. Press ? for keyboard shortcuts, I for IPA picker.");
