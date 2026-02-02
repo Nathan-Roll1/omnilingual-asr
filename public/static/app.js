@@ -1485,8 +1485,10 @@ async function fetchHistory() {
   
   historyItems = items;
   renderHistoryList();
-  if (historyItems.length && !activeId) {
-    selectHistory(historyItems[0].id);
+  
+  // Auto-load gettysburg example on first visit so users can test
+  if (!activeId) {
+    selectHistory(GETTYSBURG_EXAMPLE.id);
   }
 }
 

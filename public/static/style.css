@@ -1,17 +1,17 @@
 :root {
-  /* Colors - Elegant Dark Mode */
-  --bg: #0d0d0d;
-  --bg-subtle: #161616;
-  --ink: #e5e5e5;
-  --ink-secondary: #a3a3a3;
-  --ink-muted: #737373;
-  --accent: #3b82f6;
-  --accent-hover: #60a5fa;
-  --accent-subtle: rgba(59, 130, 246, 0.15);
-  --surface: #1a1a1a;
-  --border: #2a2a2a;
-  --border-strong: #404040;
-  --border-dim: #222222;
+  /* Colors - Clean Dark Mode */
+  --bg: #111111;
+  --bg-subtle: #1a1a1a;
+  --ink: #f5f5f5;
+  --ink-secondary: #a1a1a1;
+  --ink-muted: #6b6b6b;
+  --accent: #8c1515;
+  --accent-hover: #a51c1c;
+  --accent-subtle: rgba(140, 21, 21, 0.15);
+  --surface: #1e1e1e;
+  --border: #333333;
+  --border-strong: #444444;
+  --border-dim: #262626;
   
   /* Legacy aliases for compatibility */
   --bg-warm: var(--bg-subtle);
@@ -20,20 +20,20 @@
   --accent-glow: var(--accent-subtle);
   --card: var(--surface);
   --card-border: var(--border);
-  --sidebar: #111111;
+  --sidebar: #161616;
   --sidebar-border: var(--border);
   
   /* Speaker colors - Adjusted for dark mode */
-  --speaker-a: #60a5fa;
-  --speaker-b: #a78bfa;
-  --speaker-c: #34d399;
+  --speaker-a: #6ba3d6;
+  --speaker-b: #a890d3;
+  --speaker-c: #5cb89c;
   
-  /* Typography - Monospace only */
-  --font-mono: "JetBrains Mono", "SF Mono", "Fira Code", Consolas, monospace;
-  --font-sans: var(--font-mono);
+  /* Typography */
+  --font-sans: "Open Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", Consolas, monospace;
   --mono: var(--font-mono);
-  --serif: var(--font-mono);
-  --sans: var(--font-mono);
+  --serif: var(--font-sans);
+  --sans: var(--font-sans);
   
   /* Spacing scale */
   --space-1: 4px;
@@ -44,11 +44,11 @@
   --space-6: 24px;
   --space-8: 32px;
   
-  /* Border radius - Subtle rounding */
+  /* Border radius */
   --radius-none: 0;
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
   
   /* Animation */
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
@@ -62,15 +62,15 @@
 
 body {
   margin: 0;
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   background: var(--bg);
   color: var(--ink);
   min-height: 100vh;
-  line-height: 1.5;
-  font-size: 13px;
+  line-height: 1.6;
+  font-size: 14px;
 }
 
-/* Subtle noise texture */
+/* Hidden grain overlay */
 .grain {
   display: none;
 }
@@ -142,16 +142,15 @@ body {
   border: none;
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-sm);
-  font-weight: 500;
-  font-size: 0.8rem;
-  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 0.875rem;
+  font-family: var(--font-sans);
   cursor: pointer;
   transition: all var(--transition-fast);
 }
 
 .btn-primary:hover {
   background: var(--accent-hover);
-  color: #ffffff;
 }
 
 .sidebar-hint {
@@ -356,19 +355,19 @@ body {
   align-items: center;
   gap: var(--space-2);
   border: 1px solid var(--border-strong);
-  background: var(--surface);
+  background: transparent;
   padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-sm);
   color: var(--ink);
-  font-size: 0.8rem;
-  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  font-family: var(--font-sans);
   cursor: pointer;
   transition: all var(--transition-fast);
 }
 
 .btn-secondary:hover {
   border-color: var(--ink-secondary);
-  background: var(--bg-subtle);
+  background: var(--surface);
 }
 
 .drop-zone {
@@ -1241,8 +1240,8 @@ body {
 
 .modal-header h3 {
   margin: 0;
-  font-family: var(--font-mono);
-  font-size: 0.9rem;
+  font-family: var(--font-sans);
+  font-size: 1.1rem;
   font-weight: 600;
   color: var(--ink);
 }
@@ -1277,12 +1276,10 @@ body {
 .form-group label {
   display: block;
   margin-bottom: 8px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 500;
-  color: var(--ink-muted);
-  font-family: var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  color: var(--ink-secondary);
+  font-family: var(--font-sans);
 }
 
 .form-group select,
@@ -1291,8 +1288,8 @@ body {
   padding: 10px 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  font-family: var(--font-mono);
-  font-size: 0.85rem;
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
   background: var(--bg-subtle);
   color: var(--ink);
   cursor: pointer;
@@ -1319,9 +1316,9 @@ body {
 /* Password Modal */
 .password-error {
   color: #f87171;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   margin-top: 12px;
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
 }
 
 .password-error.hidden {
