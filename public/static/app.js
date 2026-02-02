@@ -73,6 +73,86 @@ let uploadPlaceholders = [];
 // Maps transcript ID -> Blob URL
 const audioBlobCache = new Map();
 
+// Password protection
+const PASSWORD = "sesquip";
+let isAuthenticated = sessionStorage.getItem("authenticated") === "true";
+
+// Password modal elements
+const passwordModal = document.getElementById("password-modal");
+const passwordInput = document.getElementById("password-input");
+const passwordSubmit = document.getElementById("password-submit");
+const passwordCancel = document.getElementById("password-cancel");
+const passwordClose = document.getElementById("password-close");
+const passwordError = document.getElementById("password-error");
+
+let pendingAuthCallback = null;
+
+function showPasswordModal(callback) {
+  pendingAuthCallback = callback;
+  passwordModal.classList.add("visible");
+  passwordInput.value = "";
+  passwordError.classList.add("hidden");
+  passwordInput.focus();
+}
+
+function hidePasswordModal() {
+  passwordModal.classList.remove("visible");
+  pendingAuthCallback = null;
+}
+
+function validatePassword() {
+  if (passwordInput.value === PASSWORD) {
+    isAuthenticated = true;
+    sessionStorage.setItem("authenticated", "true");
+    hidePasswordModal();
+    if (pendingAuthCallback) {
+      pendingAuthCallback();
+    }
+  } else {
+    passwordError.classList.remove("hidden");
+    passwordInput.value = "";
+    passwordInput.focus();
+  }
+}
+
+if (passwordSubmit) {
+  passwordSubmit.addEventListener("click", validatePassword);
+}
+
+if (passwordCancel) {
+  passwordCancel.addEventListener("click", hidePasswordModal);
+}
+
+if (passwordClose) {
+  passwordClose.addEventListener("click", hidePasswordModal);
+}
+
+if (passwordInput) {
+  passwordInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      validatePassword();
+    }
+  });
+}
+
+// Gettysburg example - permanent example in library
+const GETTYSBURG_EXAMPLE = {
+  id: "gettysburg-example",
+  file_name: "gettysburg.wav",
+  audio_url: "/gettysburg.wav",
+  created_at: "2024-01-01T00:00:00.000Z",
+  isPermanent: true,
+  segments: [
+    {
+      start: 0,
+      end: 10,
+      text: "Four score and seven years ago our fathers brought forth on this continent, a new nation, conceived in Liberty, and dedicated to the proposition that all men are created equal.",
+      speaker: "Speaker 1"
+    }
+  ]
+};
+
 uploadZone.addEventListener("dragover", (e) => {
   e.preventDefault();
   uploadZone.classList.add("drag-over");
@@ -131,6 +211,19 @@ function handleFileSelect(fileListInput, showModal = true) {
     const chip = document.createElement("span");
     chip.textContent = `+${files.length - 6} more`;
     fileList.appendChild(chip);
+  }
+
+  // Require password authentication
+  if (!isAuthenticated) {
+    showPasswordModal(() => {
+      if (showModal) {
+        pendingFiles = files;
+        showUploadModal();
+      } else {
+        uploadFiles(files);
+      }
+    });
+    return;
   }
 
   if (showModal) {
@@ -1383,7 +1476,14 @@ function setActiveHistory(id) {
 
 async function fetchHistory() {
   const res = await fetch("/api/history");
-  historyItems = await res.json();
+  let items = await res.json();
+  
+  // Add permanent gettysburg example at the beginning
+  if (!items.find(item => item.id === GETTYSBURG_EXAMPLE.id)) {
+    items = [GETTYSBURG_EXAMPLE, ...items];
+  }
+  
+  historyItems = items;
   renderHistoryList();
   if (historyItems.length && !activeId) {
     selectHistory(historyItems[0].id);
@@ -1435,10 +1535,17 @@ function renderHistoryList() {
       // Dropdown menu (hidden by default)
       const menu = document.createElement("div");
       menu.className = "history-dropdown hidden";
-      menu.innerHTML = `
-        <button class="history-dropdown-item" data-action="rename">Rename</button>
-        <button class="history-dropdown-item danger" data-action="delete">Delete</button>
-      `;
+      // Don't show delete option for permanent examples
+      if (item.isPermanent) {
+        menu.innerHTML = `
+          <button class="history-dropdown-item" data-action="info">Example file</button>
+        `;
+      } else {
+        menu.innerHTML = `
+          <button class="history-dropdown-item" data-action="rename">Rename</button>
+          <button class="history-dropdown-item danger" data-action="delete">Delete</button>
+        `;
+      }
       menu.addEventListener("click", async (e) => {
         e.stopPropagation();
         const action = e.target.dataset.action;
@@ -1509,6 +1616,13 @@ function actionButton(label, handler) {
 
 async function selectHistory(id) {
   setActiveHistory(id);
+  
+  // Handle permanent gettysburg example
+  if (id === GETTYSBURG_EXAMPLE.id) {
+    activateTranscript(GETTYSBURG_EXAMPLE);
+    return;
+  }
+  
   if (historyCache.has(id)) {
     activateTranscript(historyCache.get(id));
     return;

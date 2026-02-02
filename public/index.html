@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/static/style.css" />
@@ -278,6 +278,27 @@
         <div class="modal-footer">
           <button class="btn-secondary" id="modal-cancel">Cancel</button>
           <button class="btn-primary" id="modal-confirm">Start Transcription</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Password Modal -->
+    <div class="modal-overlay" id="password-modal">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>Authentication Required</h3>
+          <button class="modal-close" id="password-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="password-input">Enter Password</label>
+            <input type="password" id="password-input" placeholder="Password" autocomplete="off" />
+          </div>
+          <p id="password-error" class="password-error hidden">Incorrect password. Please try again.</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" id="password-cancel">Cancel</button>
+          <button class="btn-primary" id="password-submit">Submit</button>
         </div>
       </div>
     </div>
