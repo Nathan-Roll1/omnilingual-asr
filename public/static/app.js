@@ -104,9 +104,11 @@ function validatePassword() {
   if (passwordInput.value === PASSWORD) {
     isAuthenticated = true;
     sessionStorage.setItem("authenticated", "true");
+    // Save callback before hiding modal (which clears it)
+    const callback = pendingAuthCallback;
     hidePasswordModal();
-    if (pendingAuthCallback) {
-      pendingAuthCallback();
+    if (callback) {
+      callback();
     }
   } else {
     passwordError.classList.remove("hidden");
