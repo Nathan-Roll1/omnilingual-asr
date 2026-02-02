@@ -452,8 +452,10 @@ function renderSummary(data) {
       data.detected_languages.forEach(lang => {
         const badge = document.createElement("span");
         badge.className = "language-badge";
+        const langCode = (lang.code || lang.language || "").toLowerCase();
         badge.textContent = lang.code || lang.language;
         badge.title = lang.language || lang.code;
+        badge.dataset.lang = langCode;
         languageBadges.appendChild(badge);
       });
     }
@@ -785,15 +787,19 @@ function renderBoxTranscript(data) {
       segment.languages.forEach(lang => {
         const langBadge = document.createElement("span");
         langBadge.className = "language-badge";
+        const langCode = (lang.code || lang.name || "").toLowerCase();
         langBadge.textContent = lang.code || lang.name;
         langBadge.title = `Language: ${lang.name || lang.code}`;
+        langBadge.dataset.lang = langCode;
         meta.appendChild(langBadge);
       });
     } else if (segment.language) {
       const langBadge = document.createElement("span");
       langBadge.className = "language-badge";
+      const langCode = (segment.language_code || segment.language || "").toLowerCase();
       langBadge.textContent = segment.language_code || segment.language;
       langBadge.title = `Language: ${segment.language}`;
+      langBadge.dataset.lang = langCode;
       meta.appendChild(langBadge);
     }
 

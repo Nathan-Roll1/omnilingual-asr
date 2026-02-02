@@ -682,10 +682,33 @@ body {
   text-transform: uppercase;
 }
 
-#language-badges .language-badge {
-  background: var(--accent-glow);
-  color: var(--accent);
+/* Language badge colors - each language gets a unique color */
+#language-badges .language-badge,
+.language-badge {
+  background: rgba(156, 163, 175, 0.2);
+  color: #9ca3af;
 }
+
+.language-badge[data-lang="en"] { background: rgba(59, 130, 246, 0.25); color: #60a5fa; }
+.language-badge[data-lang="es"] { background: rgba(234, 179, 8, 0.25); color: #fbbf24; }
+.language-badge[data-lang="fr"] { background: rgba(139, 92, 246, 0.25); color: #a78bfa; }
+.language-badge[data-lang="de"] { background: rgba(34, 197, 94, 0.25); color: #4ade80; }
+.language-badge[data-lang="zh"] { background: rgba(239, 68, 68, 0.25); color: #f87171; }
+.language-badge[data-lang="ja"] { background: rgba(236, 72, 153, 0.25); color: #f472b6; }
+.language-badge[data-lang="ko"] { background: rgba(6, 182, 212, 0.25); color: #22d3ee; }
+.language-badge[data-lang="ar"] { background: rgba(249, 115, 22, 0.25); color: #fb923c; }
+.language-badge[data-lang="hi"] { background: rgba(168, 85, 247, 0.25); color: #c084fc; }
+.language-badge[data-lang="pt"] { background: rgba(16, 185, 129, 0.25); color: #34d399; }
+.language-badge[data-lang="ru"] { background: rgba(99, 102, 241, 0.25); color: #818cf8; }
+.language-badge[data-lang="it"] { background: rgba(20, 184, 166, 0.25); color: #2dd4bf; }
+.language-badge[data-lang="nl"] { background: rgba(244, 114, 182, 0.25); color: #f472b6; }
+.language-badge[data-lang="pl"] { background: rgba(251, 146, 60, 0.25); color: #fb923c; }
+.language-badge[data-lang="tr"] { background: rgba(248, 113, 113, 0.25); color: #fca5a5; }
+.language-badge[data-lang="vi"] { background: rgba(74, 222, 128, 0.25); color: #4ade80; }
+.language-badge[data-lang="th"] { background: rgba(192, 132, 252, 0.25); color: #c084fc; }
+.language-badge[data-lang="id"] { background: rgba(251, 191, 36, 0.25); color: #fcd34d; }
+.language-badge[data-lang="ms"] { background: rgba(96, 165, 250, 0.25); color: #93c5fd; }
+.language-badge[data-lang="tl"] { background: rgba(45, 212, 191, 0.25); color: #5eead4; }
 
 .summary-badge.speaker-badge {
   background: rgba(99, 102, 241, 0.12);
@@ -856,42 +879,42 @@ body {
   outline-offset: 0;
 }
 
-/* Chunk highlight colors (rainbow palette) */
-.highlight-chunk-0 { background: rgba(239, 68, 68, 0.15); }
-.highlight-chunk-1 { background: rgba(249, 115, 22, 0.15); }
-.highlight-chunk-2 { background: rgba(234, 179, 8, 0.15); }
-.highlight-chunk-3 { background: rgba(34, 197, 94, 0.15); }
-.highlight-chunk-4 { background: rgba(6, 182, 212, 0.15); }
-.highlight-chunk-5 { background: rgba(59, 130, 246, 0.15); }
-.highlight-chunk-6 { background: rgba(139, 92, 246, 0.15); }
-.highlight-chunk-7 { background: rgba(236, 72, 153, 0.15); }
+/* Chunk highlight colors (rainbow palette) - increased visibility */
+.highlight-chunk-0 { background: rgba(239, 68, 68, 0.3); }
+.highlight-chunk-1 { background: rgba(249, 115, 22, 0.3); }
+.highlight-chunk-2 { background: rgba(234, 179, 8, 0.3); }
+.highlight-chunk-3 { background: rgba(34, 197, 94, 0.3); }
+.highlight-chunk-4 { background: rgba(6, 182, 212, 0.3); }
+.highlight-chunk-5 { background: rgba(59, 130, 246, 0.3); }
+.highlight-chunk-6 { background: rgba(139, 92, 246, 0.3); }
+.highlight-chunk-7 { background: rgba(236, 72, 153, 0.3); }
 
-/* Speaker highlight colors */
-.highlight-speaker-0 { background: rgba(61, 107, 153, 0.2); }
-.highlight-speaker-1 { background: rgba(123, 94, 155, 0.2); }
-.highlight-speaker-2 { background: rgba(74, 143, 122, 0.2); }
-.highlight-speaker-3 { background: rgba(196, 93, 62, 0.2); }
-.highlight-speaker-4 { background: rgba(180, 83, 9, 0.2); }
+/* Speaker highlight colors - increased visibility */
+.highlight-speaker-0 { background: rgba(61, 107, 153, 0.35); }
+.highlight-speaker-1 { background: rgba(123, 94, 155, 0.35); }
+.highlight-speaker-2 { background: rgba(74, 143, 122, 0.35); }
+.highlight-speaker-3 { background: rgba(196, 93, 62, 0.35); }
+.highlight-speaker-4 { background: rgba(180, 83, 9, 0.35); }
 
-/* Language highlight colors */
-.highlight-lang-en { background: rgba(59, 130, 246, 0.15); }
-.highlight-lang-es { background: rgba(234, 179, 8, 0.15); }
-.highlight-lang-fr { background: rgba(139, 92, 246, 0.15); }
-.highlight-lang-de { background: rgba(34, 197, 94, 0.15); }
-.highlight-lang-zh { background: rgba(239, 68, 68, 0.15); }
-.highlight-lang-ja { background: rgba(236, 72, 153, 0.15); }
-.highlight-lang-ko { background: rgba(6, 182, 212, 0.15); }
-.highlight-lang-ar { background: rgba(249, 115, 22, 0.15); }
-.highlight-lang-hi { background: rgba(168, 85, 247, 0.15); }
-.highlight-lang-pt { background: rgba(16, 185, 129, 0.15); }
-.highlight-lang-ru { background: rgba(99, 102, 241, 0.15); }
-.highlight-lang-default { background: rgba(156, 163, 175, 0.15); }
+/* Language highlight colors - increased visibility */
+.highlight-lang-en { background: rgba(59, 130, 246, 0.3); }
+.highlight-lang-es { background: rgba(234, 179, 8, 0.3); }
+.highlight-lang-fr { background: rgba(139, 92, 246, 0.3); }
+.highlight-lang-de { background: rgba(34, 197, 94, 0.3); }
+.highlight-lang-zh { background: rgba(239, 68, 68, 0.3); }
+.highlight-lang-ja { background: rgba(236, 72, 153, 0.3); }
+.highlight-lang-ko { background: rgba(6, 182, 212, 0.3); }
+.highlight-lang-ar { background: rgba(249, 115, 22, 0.3); }
+.highlight-lang-hi { background: rgba(168, 85, 247, 0.3); }
+.highlight-lang-pt { background: rgba(16, 185, 129, 0.3); }
+.highlight-lang-ru { background: rgba(99, 102, 241, 0.3); }
+.highlight-lang-default { background: rgba(156, 163, 175, 0.25); }
 
-/* Emotion highlight colors */
-.highlight-emotion-happy { background: rgba(34, 197, 94, 0.2); }
-.highlight-emotion-sad { background: rgba(59, 130, 246, 0.2); }
-.highlight-emotion-angry { background: rgba(239, 68, 68, 0.2); }
-.highlight-emotion-neutral { background: rgba(156, 163, 175, 0.15); }
+/* Emotion highlight colors - increased visibility */
+.highlight-emotion-happy { background: rgba(34, 197, 94, 0.35); }
+.highlight-emotion-sad { background: rgba(59, 130, 246, 0.35); }
+.highlight-emotion-angry { background: rgba(239, 68, 68, 0.35); }
+.highlight-emotion-neutral { background: rgba(156, 163, 175, 0.25); }
 
 /* Flow chunk tooltip */
 .flow-chunk[data-tooltip]:hover::after {
@@ -1078,8 +1101,8 @@ body {
 }
 
 .word.playing {
-  background: var(--accent-glow);
-  color: var(--accent);
+  background: var(--accent);
+  color: #ffffff;
 }
 
 .word.editing {
