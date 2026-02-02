@@ -1619,6 +1619,11 @@ function actionButton(label, handler) {
 }
 
 async function selectHistory(id) {
+  if (!id) {
+    console.error("selectHistory called with invalid id:", id);
+    return;
+  }
+  
   setActiveHistory(id);
   
   // Handle permanent gettysburg example
@@ -1631,13 +1636,31 @@ async function selectHistory(id) {
     activateTranscript(historyCache.get(id));
     return;
   }
-  const res = await fetch(`/api/history/${id}`);
-  const data = await res.json();
-  historyCache.set(id, data);
-  activateTranscript(data);
+  
+  try {
+    const res = await fetch(`/api/history/${id}`);
+    if (!res.ok) {
+      console.error("Failed to fetch history:", res.status);
+      return;
+    }
+    const data = await res.json();
+    if (!data || !data.id) {
+      console.error("Invalid history data:", data);
+      return;
+    }
+    historyCache.set(id, data);
+    activateTranscript(data);
+  } catch (err) {
+    console.error("Error fetching history:", err);
+  }
 }
 
 function activateTranscript(data) {
+  if (!data) {
+    console.error("activateTranscript called with invalid data");
+    return;
+  }
+  
   activeData = data;
   
   // Try to get audio URL: prefer blob cache, fall back to server URL
@@ -1891,7 +1914,7 @@ async function uploadFiles(files, options = {}) {
         historyItems = [...resultData.results, ...historyItems];
         renderHistoryList();
         if (resultData.results.length) {
-          selectHistory(resultData.results[0].id);
+          await selectHistory(resultData.results[0].id);
         }
       } else {
         historyItems = historyItems.filter((h) => !h.loading);
@@ -1903,7 +1926,7 @@ async function uploadFiles(files, options = {}) {
         }
         historyItems = [resultData, ...historyItems];
         renderHistoryList();
-        selectHistory(resultData.id);
+        await selectHistory(resultData.id);
       }
     }
     uploadPlaceholders = [];
