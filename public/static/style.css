@@ -1125,7 +1125,7 @@ body {
 .player-btn {
   background: transparent;
   border: none;
-  color: var(--ink);
+  color: var(--accent);
   cursor: pointer;
   padding: var(--space-2);
   border-radius: var(--radius-sm);
@@ -1133,7 +1133,7 @@ body {
 }
 
 .player-btn:hover {
-  color: var(--accent);
+  color: var(--accent-hover);
   background: var(--accent-subtle);
 }
 
@@ -1719,7 +1719,7 @@ body {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  color: var(--bg);
+  color: #ffffff;
   font-size: 0.75rem;
   font-weight: 500;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8), 0 0 8px rgba(0, 0, 0, 0.6);
