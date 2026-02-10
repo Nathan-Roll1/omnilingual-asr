@@ -6,7 +6,7 @@ pages_build_output_dir = "public"
 [[d1_databases]]
 binding = "DB"
 database_name = "omnitranscribe-db"
-database_id = "" # Fill in after: wrangler d1 create omnitranscribe-db
+database_id = "bd21be5c-318b-462b-a899-49c645836993"
 
 # R2 bucket for audio file storage
 [[r2_buckets]]
