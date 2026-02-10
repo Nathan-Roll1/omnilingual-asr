@@ -768,6 +768,8 @@ function renderFlowTranscript(data) {
     
     chunk.addEventListener("click", (e) => {
       e.stopPropagation();
+      // If already editing this chunk, let the native click position the cursor
+      if (editState && editState.el === chunk) return;
       // Remove active from all chunks
       document.querySelectorAll(".flow-chunk.active").forEach(c => c.classList.remove("active"));
       chunk.classList.add("active");
@@ -875,6 +877,8 @@ function renderBoxTranscript(data) {
         span.dataset.word = wordIdx;
 
         span.addEventListener("click", () => {
+          // If already editing this word, let the native click position the cursor
+          if (editState && editState.el === span) return;
           playWord(Number(word.start), Number(word.end));
           highlightWord(span);
           openInlineEditor(span);
@@ -895,6 +899,8 @@ function renderBoxTranscript(data) {
       span.dataset.word = 0;
 
       span.addEventListener("click", () => {
+        // If already editing this segment, let the native click position the cursor
+        if (editState && editState.el === span) return;
         playWord(Number(segment.start), Number(segment.end));
         highlightWord(span);
         openInlineEditor(span);
