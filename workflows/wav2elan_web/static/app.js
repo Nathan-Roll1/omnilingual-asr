@@ -819,10 +819,16 @@ function renderBoxTranscript(data) {
     const meta = document.createElement("div");
     meta.className = "segment-meta";
 
-    // Speaker badge
+    // Speaker badge (click to rename)
     const badge = document.createElement("span");
     badge.className = `speaker-badge ${getSpeakerClass(segment.speaker)}`;
     badge.textContent = segment.speaker;
+    badge.title = "Click to rename speaker";
+    badge.style.cursor = "pointer";
+    badge.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openSpeakerRename(badge, segment.speaker);
+    });
     meta.appendChild(badge);
 
     // Language badges (support code-switching with multiple languages)
@@ -1873,14 +1879,83 @@ document.addEventListener("keydown", (event) => {
 async function performUndo() {
   if (!undoStack.length || !activeData || !activeId) return;
   const action = undoStack.pop();
-  const segment = activeData.segments[action.segIdx];
-  if (!segment) return;
 
-  if (action.field === "word" && segment.words && segment.words[action.wordIdx]) {
-    segment.words[action.wordIdx].word = action.oldValue;
-  } else if (action.field === "text") {
-    segment.text = action.oldValue;
+  if (action.field === "speaker_rename") {
+    // Reverse the rename: newValue -> oldValue
+    activeData.segments.forEach((seg) => {
+      if (seg.speaker === action.newValue) seg.speaker = action.oldValue;
+    });
+  } else {
+    const segment = activeData.segments[action.segIdx];
+    if (!segment) return;
+    if (action.field === "word" && segment.words && segment.words[action.wordIdx]) {
+      segment.words[action.wordIdx].word = action.oldValue;
+    } else if (action.field === "text") {
+      segment.text = action.oldValue;
+    }
   }
+
+  await updateHistory(activeId, { segments: activeData.segments });
+  renderTranscript(activeData);
+}
+
+// =============================================
+// SPEAKER RENAME
+// =============================================
+
+function openSpeakerRename(badgeEl, oldName) {
+  if (!activeData || !activeId) return;
+
+  // Create inline input replacing the badge text
+  const input = document.createElement("input");
+  input.type = "text";
+  input.value = oldName;
+  input.className = "speaker-rename-input";
+  input.style.cssText = `
+    font-size: 0.68rem; font-weight: 600; text-transform: uppercase;
+    border: none; outline: 2px solid var(--accent); border-radius: var(--radius-sm);
+    padding: 2px 6px; background: var(--surface); color: var(--ink);
+    width: ${Math.max(oldName.length + 2, 6)}ch; caret-color: var(--ink);
+  `;
+
+  badgeEl.textContent = "";
+  badgeEl.appendChild(input);
+  input.focus();
+  input.select();
+
+  let committed = false;
+
+  function commit() {
+    if (committed) return;
+    committed = true;
+    const newName = input.value.trim();
+    if (newName && newName !== oldName) {
+      renameSpeaker(oldName, newName);
+    } else {
+      badgeEl.textContent = oldName;
+    }
+  }
+
+  input.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Enter") { e.preventDefault(); commit(); }
+    if (e.key === "Escape") { e.preventDefault(); badgeEl.textContent = oldName; committed = true; }
+  });
+  input.addEventListener("blur", commit);
+}
+
+async function renameSpeaker(oldName, newName) {
+  if (!activeData || !activeId) return;
+
+  // Push undo entry
+  undoStack.push({ field: "speaker_rename", oldValue: oldName, newValue: newName });
+
+  // Update all segments with this speaker
+  activeData.segments.forEach((seg) => {
+    if (seg.speaker === oldName) {
+      seg.speaker = newName;
+    }
+  });
 
   await updateHistory(activeId, { segments: activeData.segments });
   renderTranscript(activeData);
