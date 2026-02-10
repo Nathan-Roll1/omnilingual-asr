@@ -176,19 +176,84 @@ if (passwordInput) {
   });
 }
 
-// Gettysburg example - permanent example in library
-const GETTYSBURG_EXAMPLE = {
-  id: "gettysburg-example",
-  file_name: "gettysburg.wav",
-  audio_url: "/gettysburg.wav",
+// Code-switching demo — permanent example in library
+const DEMO_EXAMPLE = {
+  id: "codeswitching-demo",
+  file_name: "Samuel Speaking Lisu.mp3",
+  audio_url: "/codeswitching-demo.mp3",
   created_at: "2024-01-01T00:00:00.000Z",
   isPermanent: true,
+  summary: "A single speaker demonstrates code-switching across Lisu, Mandarin Chinese, and English while discussing family and daily life. The tone is calm and conversational.",
+  detected_languages: [
+    { code: "lis", language: "Lisu" },
+    { code: "cmn", language: "Mandarin Chinese" },
+    { code: "eng", language: "English" },
+    { code: "mya", language: "Burmese" }
+  ],
   segments: [
     {
-      start: 0,
-      end: 10,
-      text: "Four score and seven years ago our fathers brought forth on this continent, a new nation, conceived in Liberty, and dedicated to the proposition that all men are created equal.",
-      speaker: "Speaker 1"
+      start: 0.86, end: 3.42,
+      text: "ꓔꓱ ꓟꓲ ꓬꓲ ꓔꓬ ꓗꓪ ꓟꓯ ꓙꓵ ꓐꓴ ꓬꓲ ꓟꓲ",
+      speaker: "Samuel", emotion: "neutral",
+      language: "Lisu", language_code: "lis",
+      languages: [{ name: "Lisu", code: "lis" }],
+      translation: "Let me tell you about my family."
+    },
+    {
+      start: 3.83, end: 5.90,
+      text: "就再去啊，一个",
+      speaker: "Samuel", emotion: "neutral",
+      language: "Mandarin Chinese", language_code: "cmn",
+      languages: [{ name: "Mandarin Chinese", code: "cmn" }],
+      translation: "Then go again, one more."
+    },
+    {
+      start: 6.22, end: 6.98,
+      text: "ꓠꓲꓹ ꓐꓯ ꓙꓵ ꓐꓯ",
+      speaker: "Samuel", emotion: "neutral",
+      language: "Lisu", language_code: "lis",
+      languages: [{ name: "Lisu", code: "lis" }],
+      translation: "This village here."
+    },
+    {
+      start: 7.47, end: 8.28,
+      text: "麻念",
+      speaker: "Samuel", emotion: "neutral",
+      language: "Mandarin Chinese", language_code: "cmn",
+      languages: [{ name: "Mandarin Chinese", code: "cmn" }],
+      translation: "Just thinking."
+    },
+    {
+      start: 8.87, end: 10.85,
+      text: "ꓡꓰ ꓢꓴ ꓔꓬ ꓠꓲ ꓙꓵ ꓗꓪ",
+      speaker: "Samuel", emotion: "neutral",
+      language: "Lisu", language_code: "lis",
+      languages: [{ name: "Lisu", code: "lis" }],
+      translation: "In the old days, our home."
+    },
+    {
+      start: 11.19, end: 12.11,
+      text: "ꓠꓬ ꓙꓵ ꓖꓡ ꓟꓲ",
+      speaker: "Samuel", emotion: "neutral",
+      language: "Lisu", language_code: "lis",
+      languages: [{ name: "Lisu", code: "lis" }],
+      translation: "The place where we lived."
+    },
+    {
+      start: 12.32, end: 17.48,
+      text: "ꓠꓲꓹ ꓐꓯ ꓙ ꓥ ꓐꓯ ꓡ ꓐꓯ ꓮ ꓫꓵ ꓥ ꓐꓯ ꓟꓲ ꓢꓳ ꓟ ꓠꓬ ꓙ ꓖꓡ ꓟꓲ ꓬꓡ ꓢꓳ ꓕꓕꓰ ꓟ ꓢꓳ ꓠꓬ",
+      speaker: "Samuel", emotion: "neutral",
+      language: "Lisu", language_code: "lis",
+      languages: [{ name: "Lisu", code: "lis" }],
+      translation: "Here in this village, our family has lived for generations, and we will continue to stay."
+    },
+    {
+      start: 17.85, end: 21.07,
+      text: "如那瓜家里活，我吧",
+      speaker: "Samuel", emotion: "neutral",
+      language: "Mandarin Chinese", language_code: "cmn",
+      languages: [{ name: "Mandarin Chinese", code: "cmn" }, { name: "Lisu", code: "lis" }],
+      translation: "If at home doing things, then me, right."
     }
   ]
 };
@@ -1557,8 +1622,8 @@ async function fetchHistory() {
   let items = await res.json();
   
   // Add permanent gettysburg example at the beginning
-  if (!items.find(item => item.id === GETTYSBURG_EXAMPLE.id)) {
-    items = [GETTYSBURG_EXAMPLE, ...items];
+  if (!items.find(item => item.id === DEMO_EXAMPLE.id)) {
+    items = [DEMO_EXAMPLE, ...items];
   }
   
   historyItems = items;
@@ -1566,7 +1631,7 @@ async function fetchHistory() {
   
   // Auto-load gettysburg example on first visit so users can test
   if (!activeId) {
-    selectHistory(GETTYSBURG_EXAMPLE.id);
+    selectHistory(DEMO_EXAMPLE.id);
   }
 }
 
@@ -1703,8 +1768,8 @@ async function selectHistory(id) {
   setActiveHistory(id);
   
   // Handle permanent gettysburg example
-  if (id === GETTYSBURG_EXAMPLE.id) {
-    await activateTranscript(GETTYSBURG_EXAMPLE);
+  if (id === DEMO_EXAMPLE.id) {
+    await activateTranscript(DEMO_EXAMPLE);
     return;
   }
   
