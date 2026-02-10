@@ -138,7 +138,7 @@ body {
   display: block;
   height: 18px;
   width: auto;
-  margin-top: 1px;
+  margin-top: -2px;
   opacity: 0.75;
 }
 
