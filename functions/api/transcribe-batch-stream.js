@@ -1,5 +1,5 @@
-import { transcribeWithGemini } from "./_gemini.js";
-import { putHistory } from "./_history.js";
+import { transcribeWithGemini, getMimeType } from "./_gemini.js";
+import { putHistory, storeAudio } from "./_history.js";
 
 function sseEvent(type, data) {
   return `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -44,17 +44,30 @@ export async function onRequestPost({ request, env }) {
             speakerCount,
           });
 
+          const id = crypto.randomUUID();
+
+          // Store audio in R2
+          let audioKey = null;
+          if (env.AUDIO_BUCKET) {
+            const mimeType = getMimeType(file.name);
+            audioKey = await storeAudio(env.AUDIO_BUCKET, id, file.name, audioBuffer, mimeType);
+          }
+
           const entry = {
-            id: crypto.randomUUID(),
+            id,
             file_name: file.name,
             created_at: new Date().toISOString(),
-            audio_url: null,
+            audio_key: audioKey,
+            audio_url: audioKey ? `/api/audio/${id}` : null,
             summary: result.summary,
             detected_languages: result.detected_languages,
             segments: result.segments,
           };
 
-          putHistory(entry);
+          if (env.DB) {
+            await putHistory(env.DB, entry);
+          }
+
           results.push(entry);
         }
 

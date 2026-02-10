@@ -1,0 +1,15 @@
+name = "omnitranscribe"
+compatibility_date = "2024-09-23"
+pages_build_output_dir = "public"
+
+# D1 database for transcripts and metadata
+[[d1_databases]]
+binding = "DB"
+database_name = "omnitranscribe-db"
+database_id = "" # Fill in after: wrangler d1 create omnitranscribe-db
+
+# R2 bucket for audio file storage
+[[r2_buckets]]
+binding = "AUDIO_BUCKET"
+bucket_name = "omnitranscribe-audio"
+# Create with: wrangler r2 bucket create omnitranscribe-audio

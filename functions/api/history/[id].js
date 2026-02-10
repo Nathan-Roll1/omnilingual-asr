@@ -1,7 +1,14 @@
 import { getHistory, updateHistory, deleteHistory } from "../_history.js";
 
-export async function onRequestGet({ params }) {
-  const item = getHistory(params.id);
+export async function onRequestGet({ params, env }) {
+  if (!env.DB) {
+    return new Response(JSON.stringify({ error: "Database not configured." }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const item = await getHistory(env.DB, params.id);
   if (!item) {
     return new Response(JSON.stringify({ error: "Not found" }), {
       status: 404,
@@ -13,9 +20,16 @@ export async function onRequestGet({ params }) {
   });
 }
 
-export async function onRequestPut({ params, request }) {
+export async function onRequestPut({ params, request, env }) {
+  if (!env.DB) {
+    return new Response(JSON.stringify({ error: "Database not configured." }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   const patch = await request.json();
-  const updated = updateHistory(params.id, patch);
+  const updated = await updateHistory(env.DB, params.id, patch);
   if (!updated) {
     return new Response(JSON.stringify({ error: "Not found" }), {
       status: 404,
@@ -27,8 +41,15 @@ export async function onRequestPut({ params, request }) {
   });
 }
 
-export async function onRequestDelete({ params }) {
-  const ok = deleteHistory(params.id);
+export async function onRequestDelete({ params, env }) {
+  if (!env.DB) {
+    return new Response(JSON.stringify({ error: "Database not configured." }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const ok = await deleteHistory(env.DB, env.AUDIO_BUCKET || null, params.id);
   if (!ok) {
     return new Response(JSON.stringify({ error: "Not found" }), {
       status: 404,

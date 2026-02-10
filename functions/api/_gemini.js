@@ -228,4 +228,4 @@ async function transcribeWithGemini({
   };
 }
 
-export { transcribeWithGemini };
+export { transcribeWithGemini, getMimeType };
