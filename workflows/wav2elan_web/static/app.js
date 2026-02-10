@@ -99,6 +99,9 @@ let lastWordIndex = 0;
 let currentWord = null;
 let activeAudioUrl = null;
 let editState = null;
+
+// Undo stack for text edits: [{segIdx, field, oldValue, newValue}, ...]
+const undoStack = [];
 let stopAtTime = null;
 let stopTimeout = null;
 let uploadPlaceholders = [];
@@ -768,6 +771,15 @@ function renderFlowTranscript(data) {
       document.querySelectorAll(".flow-chunk.active").forEach(c => c.classList.remove("active"));
       chunk.classList.add("active");
       playWord(Number(segment.start), Number(segment.end));
+    });
+
+    // Double-click to edit text inline in flow view
+    chunk.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (editState) finalizeInlineEdit(editState.el, true);
+      chunk.dataset.word = "0"; // flow chunks are whole segments
+      openInlineEditor(chunk);
     });
     
     flowContainer.appendChild(chunk);
@@ -1771,14 +1783,16 @@ async function finalizeInlineEdit(wordEl, restoreOnEmpty = false) {
   const newText = wordEl.textContent.trim();
   if (!newText && restoreOnEmpty) {
     wordEl.textContent = editState.original;
-  } else if (newText) {
+  } else if (newText && newText !== editState.original) {
     const segment = activeData.segments[editState.segIdx];
     // Check if we're editing a word or the whole segment
     if (segment.words && segment.words.length > 0 && segment.words[editState.wordIdx]) {
       // Word-level editing
+      undoStack.push({ segIdx: editState.segIdx, field: "word", wordIdx: editState.wordIdx, oldValue: editState.original, newValue: newText });
       segment.words[editState.wordIdx].word = newText;
     } else {
-      // Segment-level editing (no words available)
+      // Segment-level editing (flow or no words)
+      undoStack.push({ segIdx: editState.segIdx, field: "text", oldValue: editState.original, newValue: newText });
       segment.text = newText;
     }
     await updateHistory(activeId, { segments: activeData.segments });
@@ -1823,6 +1837,13 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
+  // Ctrl+Z / Cmd+Z undo
+  if ((event.ctrlKey || event.metaKey) && event.key === "z" && !editState) {
+    event.preventDefault();
+    performUndo();
+    return;
+  }
+
   if (!editState) return;
   if (event.key === "Enter") {
     event.preventDefault();
@@ -1836,6 +1857,22 @@ document.addEventListener("keydown", (event) => {
     }
   }
 });
+
+async function performUndo() {
+  if (!undoStack.length || !activeData || !activeId) return;
+  const action = undoStack.pop();
+  const segment = activeData.segments[action.segIdx];
+  if (!segment) return;
+
+  if (action.field === "word" && segment.words && segment.words[action.wordIdx]) {
+    segment.words[action.wordIdx].word = action.oldValue;
+  } else if (action.field === "text") {
+    segment.text = action.oldValue;
+  }
+
+  await updateHistory(activeId, { segments: activeData.segments });
+  renderTranscript(activeData);
+}
 
 function shouldUseBatch(files) {
   if (files.length > 1) return true;

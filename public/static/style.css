@@ -979,6 +979,13 @@ body {
 }
 .flow-chunk:hover { filter: brightness(0.93); }
 .flow-chunk.active { outline: 2px solid var(--accent); outline-offset: 0; }
+.flow-chunk.editing {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  background: var(--surface) !important;
+  filter: none;
+  min-width: 2ch;
+}
 
 /* Tooltip */
 .flow-chunk[data-tooltip]:hover::after {
