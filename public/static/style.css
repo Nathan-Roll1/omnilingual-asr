@@ -985,6 +985,7 @@ body {
   background: var(--surface) !important;
   filter: none;
   min-width: 2ch;
+  caret-color: var(--ink);
 }
 
 /* Tooltip */
@@ -1134,8 +1135,9 @@ body {
   color: var(--ink);
   outline: 2px solid var(--accent);
   box-shadow: 0 2px 8px var(--accent-subtle);
+  caret-color: var(--ink);
 }
-.word.editing:focus { outline: 2px solid var(--accent); }
+.word.editing:focus { outline: 2px solid var(--accent); caret-color: var(--ink); }
 
 /* =============================================
    PLAYER BAR
