@@ -136,10 +136,14 @@ body {
 
 .brand-affiliation {
   display: block;
-  height: 18px;
+  height: 24px;
   width: auto;
   margin-top: -2px;
   opacity: 0.75;
+  transition: opacity 0.15s ease;
+}
+.brand-affiliation:hover {
+  opacity: 1;
 }
 
 .sidebar p {
