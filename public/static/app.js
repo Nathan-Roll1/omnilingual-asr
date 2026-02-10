@@ -73,6 +73,7 @@ const highlightModeSelect = document.getElementById("highlight-mode");
 
 // View state
 let currentViewMode = "flow"; // "flow" or "box"
+let showTranslation = false;
 let currentHighlightMode = "chunk"; // "chunk", "speaker", "language", "emotion"
 
 // Upload options modal elements
@@ -337,6 +338,16 @@ highlightModeSelect.addEventListener("change", () => {
     renderTranscript(activeData);
   }
 });
+
+const translationCheckbox = document.getElementById("translation-checkbox");
+const translationToggle = document.getElementById("translation-toggle");
+if (translationCheckbox) {
+  translationCheckbox.addEventListener("change", () => {
+    showTranslation = translationCheckbox.checked;
+    if (translationToggle) translationToggle.classList.toggle("active", showTranslation);
+    if (activeData) renderTranscript(activeData);
+  });
+}
 
 function showProgress() {
   progressSection.classList.remove("hidden");
@@ -757,7 +768,13 @@ function renderFlowTranscript(data) {
   data.segments.forEach((segment, segIdx) => {
     const chunk = document.createElement("span");
     chunk.className = "flow-chunk";
-    chunk.textContent = segment.text;
+
+    // Show translation if toggle is on and translation exists
+    const hasTranslation = showTranslation && segment.translation &&
+      segment.translation !== "null" && segment.translation.trim() !== "" &&
+      segment.translation !== segment.text;
+    chunk.textContent = hasTranslation ? segment.translation : segment.text;
+
     chunk.dataset.segment = segIdx;
     chunk.dataset.start = segment.start;
     chunk.dataset.end = segment.end;
