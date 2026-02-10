@@ -1,3 +1,37 @@
+// =============================================
+// SESSION KEY — isolates each user's workspace
+// =============================================
+function generateSessionKey() {
+  // 12 chars, alphanumeric, easy to copy/paste
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+  let key = "";
+  const arr = new Uint8Array(12);
+  crypto.getRandomValues(arr);
+  for (const b of arr) key += chars[b % chars.length];
+  return key;
+}
+
+let sessionKey = localStorage.getItem("omni_session_key");
+if (!sessionKey) {
+  sessionKey = generateSessionKey();
+  localStorage.setItem("omni_session_key", sessionKey);
+}
+
+// Attach session key to all fetch requests
+const _origFetch = window.fetch;
+window.fetch = function (url, opts = {}) {
+  // Only add header for our own API calls
+  if (typeof url === "string" && url.startsWith("/api/")) {
+    opts.headers = opts.headers || {};
+    if (opts.headers instanceof Headers) {
+      opts.headers.set("x-session-key", sessionKey);
+    } else {
+      opts.headers["x-session-key"] = sessionKey;
+    }
+  }
+  return _origFetch.call(this, url, opts);
+};
+
 // Elements
 const uploadZone = document.getElementById("upload-zone");
 const fileInput = document.getElementById("file-input");
@@ -2013,6 +2047,82 @@ if (citeCopy && citeText) {
         citeCopy.classList.remove("copied");
       }, 2000);
     }
+  });
+}
+
+// =============================================
+// SESSION KEY UI
+// =============================================
+const sessionKeyEl = document.getElementById("session-key-value");
+const sessionCopyBtn = document.getElementById("session-copy");
+const sessionRestoreBtn = document.getElementById("session-restore");
+const sessionRestoreInput = document.getElementById("session-restore-input");
+const sessionRestoreBox = document.getElementById("session-restore-box");
+const sessionRestoreConfirm = document.getElementById("session-restore-confirm");
+const sessionRestoreCancel = document.getElementById("session-restore-cancel");
+
+if (sessionKeyEl) {
+  sessionKeyEl.textContent = sessionKey;
+}
+
+if (sessionCopyBtn) {
+  sessionCopyBtn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(sessionKey);
+      sessionCopyBtn.textContent = "Copied!";
+      sessionCopyBtn.classList.add("copied");
+      setTimeout(() => {
+        sessionCopyBtn.textContent = "Copy";
+        sessionCopyBtn.classList.remove("copied");
+      }, 2000);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = sessionKey;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      sessionCopyBtn.textContent = "Copied!";
+      sessionCopyBtn.classList.add("copied");
+      setTimeout(() => {
+        sessionCopyBtn.textContent = "Copy";
+        sessionCopyBtn.classList.remove("copied");
+      }, 2000);
+    }
+  });
+}
+
+if (sessionRestoreBtn && sessionRestoreBox) {
+  sessionRestoreBtn.addEventListener("click", () => {
+    sessionRestoreBox.classList.toggle("hidden");
+    if (!sessionRestoreBox.classList.contains("hidden") && sessionRestoreInput) {
+      sessionRestoreInput.value = "";
+      sessionRestoreInput.focus();
+    }
+  });
+}
+
+if (sessionRestoreConfirm && sessionRestoreInput) {
+  sessionRestoreConfirm.addEventListener("click", () => {
+    const newKey = sessionRestoreInput.value.trim();
+    if (newKey && newKey.length >= 8) {
+      localStorage.setItem("omni_session_key", newKey);
+      sessionKey = newKey;
+      window.location.reload();
+    } else {
+      sessionRestoreInput.style.borderColor = "#b91c1c";
+      setTimeout(() => { sessionRestoreInput.style.borderColor = ""; }, 1500);
+    }
+  });
+
+  sessionRestoreInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") sessionRestoreConfirm.click();
+  });
+}
+
+if (sessionRestoreCancel && sessionRestoreBox) {
+  sessionRestoreCancel.addEventListener("click", () => {
+    sessionRestoreBox.classList.add("hidden");
   });
 }
 

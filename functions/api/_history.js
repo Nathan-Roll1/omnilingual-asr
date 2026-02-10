@@ -1,15 +1,15 @@
 // D1 + R2 backed history store for OmniTranscribe
-// env.DB = D1 database binding
-// env.AUDIO_BUCKET = R2 bucket binding
+// All queries are scoped by session_key for user isolation
 
 /**
- * List all transcripts (lightweight — no segments)
+ * List transcripts for a session (lightweight — no segments)
  */
-async function listHistory(db) {
+async function listHistory(db, sessionKey) {
   const { results } = await db
     .prepare(
-      "SELECT id, file_name, created_at, summary, detected_languages, audio_key FROM transcripts ORDER BY created_at DESC"
+      "SELECT id, file_name, created_at, summary, detected_languages, audio_key FROM transcripts WHERE session_key = ? ORDER BY created_at DESC"
     )
+    .bind(sessionKey)
     .all();
 
   return results.map((row) => ({
@@ -25,14 +25,14 @@ async function listHistory(db) {
 }
 
 /**
- * Get a full transcript by ID (with all segments)
+ * Get a full transcript by ID, scoped to session
  */
-async function getHistory(db, id) {
+async function getHistory(db, id, sessionKey) {
   const row = await db
     .prepare(
-      "SELECT id, file_name, created_at, summary, detected_languages, audio_key FROM transcripts WHERE id = ?"
+      "SELECT id, file_name, created_at, summary, detected_languages, audio_key FROM transcripts WHERE id = ? AND session_key = ?"
     )
-    .bind(id)
+    .bind(id, sessionKey)
     .first();
 
   if (!row) return null;
@@ -72,13 +72,12 @@ async function getHistory(db, id) {
 }
 
 /**
- * Insert a full transcript (metadata + segments) into D1
+ * Insert a full transcript with session_key
  */
-async function putHistory(db, item) {
-  // Insert transcript row
+async function putHistory(db, item, sessionKey) {
   await db
     .prepare(
-      "INSERT OR REPLACE INTO transcripts (id, file_name, created_at, summary, detected_languages, audio_key) VALUES (?, ?, ?, ?, ?, ?)"
+      "INSERT OR REPLACE INTO transcripts (id, file_name, created_at, summary, detected_languages, audio_key, session_key) VALUES (?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(
       item.id,
@@ -86,17 +85,16 @@ async function putHistory(db, item) {
       item.created_at,
       item.summary || null,
       item.detected_languages ? JSON.stringify(item.detected_languages) : null,
-      item.audio_key || null
+      item.audio_key || null,
+      sessionKey
     )
     .run();
 
-  // Insert segments in a batch
   if (item.segments && item.segments.length > 0) {
     const stmt = db.prepare(
       "INSERT INTO segments (transcript_id, sort_order, speaker, content, start_time, end_time, language, language_code, languages, emotion, translation, words) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
 
-    // D1 batch supports up to 100 statements at a time
     const batchSize = 100;
     for (let i = 0; i < item.segments.length; i += batchSize) {
       const batch = item.segments.slice(i, i + batchSize).map((seg, idx) =>
@@ -123,13 +121,13 @@ async function putHistory(db, item) {
 }
 
 /**
- * Update a transcript's segments (e.g. after user edits text/timestamps)
+ * Update a transcript, scoped to session
  */
-async function updateHistory(db, id, patch) {
-  const existing = await getHistory(db, id);
+async function updateHistory(db, id, patch, sessionKey) {
+  // Verify ownership
+  const existing = await getHistory(db, id, sessionKey);
   if (!existing) return null;
 
-  // Update transcript-level fields if provided
   const updates = [];
   const binds = [];
 
@@ -147,14 +145,15 @@ async function updateHistory(db, id, patch) {
   }
 
   if (updates.length > 0) {
-    binds.push(id);
+    binds.push(id, sessionKey);
     await db
-      .prepare(`UPDATE transcripts SET ${updates.join(", ")} WHERE id = ?`)
+      .prepare(
+        `UPDATE transcripts SET ${updates.join(", ")} WHERE id = ? AND session_key = ?`
+      )
       .bind(...binds)
       .run();
   }
 
-  // If segments are provided, replace them all
   if (patch.segments) {
     await db
       .prepare("DELETE FROM segments WHERE transcript_id = ?")
@@ -187,27 +186,26 @@ async function updateHistory(db, id, patch) {
     }
   }
 
-  return await getHistory(db, id);
+  return await getHistory(db, id, sessionKey);
 }
 
 /**
- * Delete a transcript and its segments (+ R2 audio)
+ * Delete a transcript, scoped to session
  */
-async function deleteHistory(db, bucket, id) {
-  // Get audio key before deleting
+async function deleteHistory(db, bucket, id, sessionKey) {
   const row = await db
-    .prepare("SELECT audio_key FROM transcripts WHERE id = ?")
-    .bind(id)
+    .prepare("SELECT audio_key FROM transcripts WHERE id = ? AND session_key = ?")
+    .bind(id, sessionKey)
     .first();
 
-  // Delete from D1 (CASCADE will remove segments)
+  if (!row) return false;
+
   const { meta } = await db
-    .prepare("DELETE FROM transcripts WHERE id = ?")
-    .bind(id)
+    .prepare("DELETE FROM transcripts WHERE id = ? AND session_key = ?")
+    .bind(id, sessionKey)
     .run();
 
-  // Delete audio from R2
-  if (row?.audio_key && bucket) {
+  if (row.audio_key && bucket) {
     try {
       await bucket.delete(row.audio_key);
     } catch (e) {
@@ -219,7 +217,7 @@ async function deleteHistory(db, bucket, id) {
 }
 
 /**
- * Store an audio file in R2 and return the object key
+ * Store an audio file in R2
  */
 async function storeAudio(bucket, id, filename, arrayBuffer, mimeType) {
   const ext = filename.split(".").pop() || "wav";
@@ -232,14 +230,20 @@ async function storeAudio(bucket, id, filename, arrayBuffer, mimeType) {
 }
 
 /**
- * Retrieve audio from R2
+ * Retrieve audio from R2 (verifies session ownership first)
  */
-async function getAudio(bucket, key) {
-  return await bucket.get(key);
+async function getAudioForSession(db, bucket, transcriptId, sessionKey) {
+  const row = await db
+    .prepare("SELECT audio_key FROM transcripts WHERE id = ? AND session_key = ?")
+    .bind(transcriptId, sessionKey)
+    .first();
+
+  if (!row || !row.audio_key) return null;
+  return await bucket.get(row.audio_key);
 }
 
 /**
- * Log an edit for audit trail
+ * Log an edit
  */
 async function logEdit(db, transcriptId, segmentOrder, field, oldValue, newValue) {
   await db
@@ -250,6 +254,13 @@ async function logEdit(db, transcriptId, segmentOrder, field, oldValue, newValue
     .run();
 }
 
+/**
+ * Helper: extract session key from request header
+ */
+function getSessionKey(request) {
+  return request.headers.get("x-session-key") || null;
+}
+
 export {
   listHistory,
   getHistory,
@@ -257,6 +268,7 @@ export {
   updateHistory,
   deleteHistory,
   storeAudio,
-  getAudio,
+  getAudioForSession,
   logEdit,
+  getSessionKey,
 };

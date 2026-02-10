@@ -1,5 +1,5 @@
 import { transcribeWithGemini, getMimeType } from "./_gemini.js";
-import { putHistory, storeAudio } from "./_history.js";
+import { putHistory, storeAudio, getSessionKey } from "./_history.js";
 
 function sseEvent(type, data) {
   return `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -7,10 +7,17 @@ function sseEvent(type, data) {
 
 export async function onRequestPost({ request, env }) {
   const encoder = new TextEncoder();
+  const sessionKey = getSessionKey(request);
 
   const stream = new ReadableStream({
     async start(controller) {
       try {
+        if (!sessionKey) {
+          controller.enqueue(encoder.encode(sseEvent("error", { message: "Missing session key." })));
+          controller.close();
+          return;
+        }
+
         controller.enqueue(encoder.encode(sseEvent("progress", { step: "uploading", index: 0 })));
 
         const form = await request.formData();
@@ -23,7 +30,7 @@ export async function onRequestPost({ request, env }) {
 
         const sizeLimit = 20 * 1024 * 1024;
         if (files.some((f) => f.size > sizeLimit)) {
-          controller.enqueue(encoder.encode(sseEvent("error", { message: "One or more files are too large for inline transcription." })));
+          controller.enqueue(encoder.encode(sseEvent("error", { message: "One or more files are too large." })));
           controller.close();
           return;
         }
@@ -46,7 +53,6 @@ export async function onRequestPost({ request, env }) {
 
           const id = crypto.randomUUID();
 
-          // Store audio in R2
           let audioKey = null;
           if (env.AUDIO_BUCKET) {
             const mimeType = getMimeType(file.name);
@@ -65,7 +71,7 @@ export async function onRequestPost({ request, env }) {
           };
 
           if (env.DB) {
-            await putHistory(env.DB, entry);
+            await putHistory(env.DB, entry, sessionKey);
           }
 
           results.push(entry);
@@ -76,9 +82,7 @@ export async function onRequestPost({ request, env }) {
         controller.enqueue(encoder.encode(sseEvent("result", { results })));
       } catch (err) {
         controller.enqueue(
-          encoder.encode(
-            sseEvent("error", { message: err.message || "Batch transcription failed." })
-          )
+          encoder.encode(sseEvent("error", { message: err.message || "Batch transcription failed." }))
         );
       } finally {
         controller.close();

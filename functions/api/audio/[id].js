@@ -1,43 +1,29 @@
-// Serves audio files from R2 by transcript ID
-// GET /api/audio/:id -> streams the audio file
+import { getAudioForSession, getSessionKey } from "../_history.js";
 
-export async function onRequestGet({ params, env }) {
+// GET /api/audio/:id — streams audio from R2, scoped to session
+export async function onRequestGet({ params, request, env }) {
   if (!env.DB || !env.AUDIO_BUCKET) {
     return new Response("Storage not configured", { status: 500 });
   }
 
-  // Look up the audio key from D1
-  const row = await env.DB
-    .prepare("SELECT audio_key FROM transcripts WHERE id = ?")
-    .bind(params.id)
-    .first();
-
-  if (!row || !row.audio_key) {
-    return new Response("Audio not found", { status: 404 });
+  const sessionKey = getSessionKey(request);
+  if (!sessionKey) {
+    return new Response("Unauthorized", { status: 401 });
   }
 
-  // Fetch from R2
-  const object = await env.AUDIO_BUCKET.get(row.audio_key);
+  const object = await getAudioForSession(env.DB, env.AUDIO_BUCKET, params.id, sessionKey);
   if (!object) {
-    return new Response("Audio file missing from storage", { status: 404 });
+    return new Response("Audio not found", { status: 404 });
   }
 
   const headers = new Headers();
   headers.set("Content-Type", object.httpMetadata?.contentType || "audio/wav");
-  headers.set("Cache-Control", "public, max-age=31536000, immutable");
+  headers.set("Cache-Control", "private, max-age=3600");
   headers.set("Accept-Ranges", "bytes");
-
-  // Support range requests for audio seeking
-  const range = env.request?.headers?.get("Range");
-  // For now, return the full body — R2 handles range requests automatically
-  // when using the object body as a ReadableStream
 
   if (object.size) {
     headers.set("Content-Length", String(object.size));
   }
 
-  return new Response(object.body, {
-    status: 200,
-    headers,
-  });
+  return new Response(object.body, { status: 200, headers });
 }

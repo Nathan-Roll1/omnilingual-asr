@@ -349,6 +349,120 @@ body {
 .history-dropdown-item.danger { color: #b91c1c; }
 .history-dropdown-item.danger:hover { background: rgba(185,28,28,0.06); }
 
+/* Session key section */
+.sidebar-session {
+  margin-top: auto;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+.session-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-muted);
+  margin-bottom: var(--space-2);
+}
+
+.session-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
+
+.session-key-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.session-key-value {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
+  letter-spacing: 0.04em;
+  user-select: all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-copy-btn {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--ink-muted);
+  font-family: var(--font-sans);
+  font-size: 0.68rem;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition-fast);
+}
+.session-copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+.session-copy-btn.copied { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.session-hint {
+  margin: 6px 0 0;
+  font-size: 0.68rem;
+  color: var(--ink-muted);
+  line-height: 1.4;
+}
+
+.session-restore-btn {
+  display: block;
+  width: 100%;
+  margin-top: var(--space-2);
+  padding: 6px var(--space-3);
+  border: none;
+  background: transparent;
+  color: var(--ink-muted);
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  transition: all var(--transition-fast);
+}
+.session-restore-btn:hover { background: var(--bg-subtle); color: var(--ink-secondary); }
+
+.session-restore-box {
+  margin-top: var(--space-2);
+  animation: slide-down 0.15s var(--ease-out);
+}
+.session-restore-box.hidden { display: none; }
+
+.session-restore-input {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  background: var(--surface);
+  color: var(--ink);
+  transition: border-color var(--transition-fast);
+}
+.session-restore-input:focus { outline: none; border-color: var(--accent); }
+
+.session-restore-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.session-btn-sm {
+  padding: 5px 12px;
+  font-size: 0.72rem;
+}
+
 /* Cite button */
 .sidebar-cite {
   margin-top: auto;
