@@ -502,57 +502,56 @@ function shouldShowTranslations(data) {
   });
 }
 
-// Base color palettes for dynamic assignment
+// Colorblind-safe palette (Wong 2011, Nature Methods)
+// These 8 colors are distinguishable by all forms of color vision deficiency
 const BASE_PALETTE = [
-  [239, 68, 68],    // red
-  [249, 115, 22],   // orange
-  [234, 179, 8],    // yellow
-  [34, 197, 94],    // green
-  [6, 182, 212],    // cyan
-  [59, 130, 246],   // blue
-  [139, 92, 246],   // purple
-  [236, 72, 153],   // pink
-  [16, 185, 129],   // emerald
-  [99, 102, 241],   // indigo
-  [168, 85, 247],   // violet
-  [244, 63, 94],    // rose
-  [20, 184, 166],   // teal
-  [245, 158, 11],   // amber
-  [132, 204, 22],   // lime
+  [0, 114, 178],    // blue
+  [230, 159, 0],    // orange
+  [0, 158, 115],    // bluish green
+  [204, 121, 167],  // reddish purple
+  [213, 94, 0],     // vermillion
+  [86, 180, 233],   // sky blue
+  [240, 228, 66],   // yellow
+  [0, 0, 0],        // black (for maximum contrast)
+  [100, 143, 255],  // periwinkle
+  [120, 94, 240],   // indigo
+  [254, 97, 0],     // tangerine
+  [0, 191, 179],    // teal
 ];
 
-// Predefined colors for known languages (optional hints)
+// Colorblind-safe language color hints
 const LANGUAGE_COLOR_HINTS = {
-  en: [59, 130, 246],
-  es: [234, 179, 8],
-  fr: [139, 92, 246],
-  de: [34, 197, 94],
-  zh: [239, 68, 68],
-  ja: [236, 72, 153],
-  ko: [6, 182, 212],
-  ar: [249, 115, 22],
-  hi: [168, 85, 247],
-  pt: [16, 185, 129],
-  ru: [99, 102, 241],
+  en: [0, 114, 178],     // blue
+  es: [230, 159, 0],     // orange
+  fr: [204, 121, 167],   // reddish purple
+  de: [0, 158, 115],     // bluish green
+  zh: [213, 94, 0],      // vermillion
+  ja: [86, 180, 233],    // sky blue
+  ko: [0, 191, 179],     // teal
+  ar: [230, 159, 0],     // orange
+  hi: [204, 121, 167],   // reddish purple
+  pt: [0, 158, 115],     // bluish green
+  ru: [100, 143, 255],   // periwinkle
 };
 
-// Predefined colors for known emotions
+// Colorblind-safe emotion colors
 const EMOTION_COLOR_HINTS = {
-  happy: [34, 197, 94],
-  sad: [59, 130, 246],
-  angry: [239, 68, 68],
-  neutral: [156, 163, 175],
+  happy: [0, 158, 115],    // bluish green
+  sad: [0, 114, 178],      // blue
+  angry: [213, 94, 0],     // vermillion
+  neutral: [154, 154, 154], // grey
 };
 
+// Colorblind-safe speaker colors (Wong 2011)
 const SPEAKER_COLORS = [
-  [61, 107, 153],
-  [123, 94, 155],
-  [74, 143, 122],
-  [196, 93, 62],
-  [180, 83, 9],
-  [59, 130, 246],
-  [234, 179, 8],
-  [139, 92, 246],
+  [0, 114, 178],     // blue
+  [213, 94, 0],      // vermillion
+  [0, 158, 115],     // bluish green
+  [204, 121, 167],   // reddish purple
+  [230, 159, 0],     // orange
+  [86, 180, 233],    // sky blue
+  [240, 228, 66],    // yellow
+  [120, 94, 240],    // indigo
 ];
 
 // Dynamic maps built from transcript data
@@ -1817,8 +1816,14 @@ async function uploadFiles(files, options = {}) {
   showProgress();
   resetProgress();
 
-  // Don't clear current transcript - just add new canvas to history
-  // The user can switch back to the current one via history
+  // Clear the current transcript view to show a clean "uploading" state
+  activeId = null;
+  activeData = null;
+  transcriptEl.innerHTML = "";
+  transcriptSummary.classList.add("hidden");
+  viewControls.classList.add("hidden");
+  canvasHeader.classList.add("hidden");
+  playerBar.classList.remove("visible");
   
   // Create blob URLs for audio playback (store in memory)
   // Maps placeholder ID -> { file, blobUrl }
