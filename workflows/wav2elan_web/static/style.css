@@ -980,12 +980,21 @@ body {
 .flow-chunk:hover { filter: brightness(0.93); }
 .flow-chunk.active { outline: 2px solid var(--accent); outline-offset: 0; }
 .flow-chunk.editing {
+  display: inline-block;
   outline: 2px solid var(--accent);
   outline-offset: 1px;
   background: var(--surface) !important;
+  color: var(--ink);
   filter: none;
   min-width: 2ch;
+  cursor: text;
   caret-color: var(--ink);
+  -webkit-caret-color: var(--ink);
+}
+.flow-chunk.editing:focus {
+  outline: 2px solid var(--accent);
+  caret-color: var(--ink);
+  -webkit-caret-color: var(--ink);
 }
 
 /* Tooltip */
