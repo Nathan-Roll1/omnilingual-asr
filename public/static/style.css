@@ -106,11 +106,12 @@ body {
 .sidebar {
   background: var(--sidebar);
   border-right: 1px solid var(--sidebar-border);
-  padding: var(--space-6) var(--space-5);
+  padding: var(--space-6) var(--space-5) 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
   overflow-y: auto;
+  position: relative;
 }
 
 .sidebar-brand {
@@ -355,9 +356,13 @@ body {
 
 /* Session key section */
 .sidebar-session {
+  position: sticky;
+  bottom: 0;
   margin-top: auto;
-  padding-top: var(--space-4);
+  padding: var(--space-4) 0 var(--space-5);
   border-top: 1px solid var(--border);
+  background: var(--sidebar);
+  z-index: 2;
 }
 
 .session-header {
