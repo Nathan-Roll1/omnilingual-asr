@@ -1675,12 +1675,12 @@ async function selectHistory(id) {
   
   // Handle permanent gettysburg example
   if (id === GETTYSBURG_EXAMPLE.id) {
-    activateTranscript(GETTYSBURG_EXAMPLE);
+    await activateTranscript(GETTYSBURG_EXAMPLE);
     return;
   }
   
   if (historyCache.has(id)) {
-    activateTranscript(historyCache.get(id));
+    await activateTranscript(historyCache.get(id));
     return;
   }
   
@@ -1696,13 +1696,13 @@ async function selectHistory(id) {
       return;
     }
     historyCache.set(id, data);
-    activateTranscript(data);
+    await activateTranscript(data);
   } catch (err) {
     console.error("Error fetching history:", err);
   }
 }
 
-function activateTranscript(data) {
+async function activateTranscript(data) {
   if (!data) {
     console.error("activateTranscript called with invalid data");
     return;
@@ -1710,13 +1710,23 @@ function activateTranscript(data) {
   
   activeData = data;
   
-  // Try to get audio URL: prefer blob cache, fall back to server URL
-  const blobUrl = audioBlobCache.get(data.id);
-  activeAudioUrl = blobUrl || data.audio_url;
+  // Try to get audio URL: prefer blob cache, otherwise fetch via JS to include session key
+  let blobUrl = audioBlobCache.get(data.id);
+  if (!blobUrl && data.audio_url) {
+    try {
+      const resp = await fetch(data.audio_url);
+      if (resp.ok) {
+        const blob = await resp.blob();
+        blobUrl = URL.createObjectURL(blob);
+        audioBlobCache.set(data.id, blobUrl);
+      }
+    } catch (e) {
+      console.warn("Failed to fetch audio:", e);
+    }
+  }
+  activeAudioUrl = blobUrl || null;
   
   if (activeAudioUrl) {
-    // Set crossOrigin BEFORE setting src for Web Audio API compatibility
-    audioEl.crossOrigin = "anonymous";
     audioEl.src = activeAudioUrl;
     playerBar.classList.add("visible");
     
