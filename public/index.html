@@ -27,28 +27,30 @@
 
     <div class="shell">
       <aside class="sidebar">
-        <div class="sidebar-brand">
-          <img class="brand-mark" src="/static/logo.svg" alt="OmniTranscribe logo" />
-          <div>
-            <h1>OmniTranscribe</h1>
-            <a href="https://linguistics.stanford.edu" target="_blank" rel="noopener noreferrer"><img class="brand-affiliation" src="/static/stanford-linguistics.png" alt="Stanford Linguistics" /></a>
+        <div class="sidebar-scroll">
+          <div class="sidebar-brand">
+            <img class="brand-mark" src="/static/logo.svg" alt="OmniTranscribe logo" />
+            <div>
+              <h1>OmniTranscribe</h1>
+              <a href="https://linguistics.stanford.edu" target="_blank" rel="noopener noreferrer"><img class="brand-affiliation" src="/static/stanford-linguistics.png" alt="Stanford Linguistics" /></a>
+            </div>
           </div>
-        </div>
 
-        <div class="sidebar-upload">
-          <div class="sidebar-upload-actions">
-            <label class="btn-primary" for="file-input">Upload audio</label>
-            <label class="btn-secondary" for="folder-input">Upload folder</label>
+          <div class="sidebar-upload">
+            <div class="sidebar-upload-actions">
+              <label class="btn-primary" for="file-input">Upload audio</label>
+              <label class="btn-secondary" for="folder-input">Upload folder</label>
+            </div>
+            <input id="file-input" type="file" accept=".wav,.mp3,.flac,.ogg,.m4a,.zip" multiple />
+            <input id="folder-input" type="file" webkitdirectory directory multiple />
+            <p class="sidebar-hint">Supports WAV, MP3, FLAC, OGG, M4A, ZIP</p>
+            <div class="sidebar-file-list" id="file-list"></div>
           </div>
-          <input id="file-input" type="file" accept=".wav,.mp3,.flac,.ogg,.m4a,.zip" multiple />
-          <input id="folder-input" type="file" webkitdirectory directory multiple />
-          <p class="sidebar-hint">Supports WAV, MP3, FLAC, OGG, M4A, ZIP</p>
-          <div class="sidebar-file-list" id="file-list"></div>
-        </div>
 
-        <div class="sidebar-section">
-          <div class="sidebar-section-title">Library</div>
-          <div id="history-list" class="history-list"></div>
+          <div class="sidebar-section">
+            <div class="sidebar-section-title">Library</div>
+            <div id="history-list" class="history-list"></div>
+          </div>
         </div>
 
         <div class="sidebar-session">

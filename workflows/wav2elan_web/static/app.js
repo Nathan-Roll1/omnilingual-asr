@@ -2223,9 +2223,7 @@ if (sessionRestoreBtn && sessionRestoreBox) {
     if (!sessionRestoreBox.classList.contains("hidden") && sessionRestoreInput) {
       sessionRestoreInput.value = "";
       sessionRestoreInput.focus();
-      // Scroll sidebar to bottom so restore box is visible
-      const sidebar = sessionRestoreBox.closest(".sidebar");
-      if (sidebar) setTimeout(() => sidebar.scrollTop = sidebar.scrollHeight, 50);
+      // No need to scroll — session section is pinned to sidebar bottom
     }
   });
 }
