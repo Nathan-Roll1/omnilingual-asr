@@ -2217,35 +2217,53 @@ if (sessionCopyBtn) {
 }
 
 if (sessionRestoreBtn && sessionRestoreBox) {
-  sessionRestoreBtn.addEventListener("click", () => {
+  sessionRestoreBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
     sessionRestoreBox.classList.toggle("hidden");
     if (!sessionRestoreBox.classList.contains("hidden") && sessionRestoreInput) {
       sessionRestoreInput.value = "";
       sessionRestoreInput.focus();
+      // Scroll sidebar to bottom so restore box is visible
+      const sidebar = sessionRestoreBox.closest(".sidebar");
+      if (sidebar) setTimeout(() => sidebar.scrollTop = sidebar.scrollHeight, 50);
     }
   });
 }
 
 if (sessionRestoreConfirm && sessionRestoreInput) {
-  sessionRestoreConfirm.addEventListener("click", () => {
+  sessionRestoreConfirm.addEventListener("click", (e) => {
+    e.stopPropagation();
+    e.preventDefault();
     const newKey = sessionRestoreInput.value.trim();
-    if (newKey && newKey.length >= 8) {
+    if (newKey && newKey.length >= 4) {
+      sessionRestoreConfirm.textContent = "Restoring…";
+      sessionRestoreConfirm.disabled = true;
       localStorage.setItem("omni_session_key", newKey);
       sessionKey = newKey;
+      if (sessionKeyEl) sessionKeyEl.textContent = newKey;
       window.location.reload();
     } else {
       sessionRestoreInput.style.borderColor = "#b91c1c";
-      setTimeout(() => { sessionRestoreInput.style.borderColor = ""; }, 1500);
+      sessionRestoreInput.placeholder = "Key must be at least 4 characters";
+      setTimeout(() => {
+        sessionRestoreInput.style.borderColor = "";
+        sessionRestoreInput.placeholder = "Paste your key here";
+      }, 2000);
     }
   });
 
   sessionRestoreInput.addEventListener("keydown", (e) => {
+    e.stopPropagation();
     if (e.key === "Enter") sessionRestoreConfirm.click();
+    if (e.key === "Escape") {
+      sessionRestoreBox.classList.add("hidden");
+    }
   });
 }
 
 if (sessionRestoreCancel && sessionRestoreBox) {
-  sessionRestoreCancel.addEventListener("click", () => {
+  sessionRestoreCancel.addEventListener("click", (e) => {
+    e.stopPropagation();
     sessionRestoreBox.classList.add("hidden");
   });
 }
