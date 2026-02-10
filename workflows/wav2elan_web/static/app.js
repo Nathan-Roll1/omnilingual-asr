@@ -766,17 +766,13 @@ function renderFlowTranscript(data) {
     // Apply highlight color
     chunk.style.backgroundColor = getHighlightColor(segment, segIdx, speakerMap);
     
-    chunk.addEventListener("click", () => {
+    chunk.addEventListener("click", (e) => {
+      e.stopPropagation();
       // Remove active from all chunks
       document.querySelectorAll(".flow-chunk.active").forEach(c => c.classList.remove("active"));
       chunk.classList.add("active");
       playWord(Number(segment.start), Number(segment.end));
-    });
-
-    // Double-click to edit text inline in flow view
-    chunk.addEventListener("dblclick", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
+      // Open inline editor on single click
       if (editState) finalizeInlineEdit(editState.el, true);
       chunk.dataset.word = "0"; // flow chunks are whole segments
       openInlineEditor(chunk);
