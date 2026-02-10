@@ -1874,6 +1874,8 @@ async function uploadFiles(files, options = {}) {
     const decoder = new TextDecoder();
     let buffer = "";
     let resultData = null;
+    // Persist across read() chunks so split event:/data: lines still pair up
+    let eventType = null;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -1881,39 +1883,55 @@ async function uploadFiles(files, options = {}) {
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
-      let eventType = null;
-      let eventData = null;
       for (const line of lines) {
-        if (line.startsWith("event:")) {
-          eventType = line.slice(6).trim();
-        } else if (line.startsWith("data:")) {
-          eventData = line.slice(5).trim();
+        const trimmed = line.trim();
+        if (!trimmed) {
+          // Blank line = SSE message boundary; reset for next message
+          eventType = null;
+          continue;
+        }
+        if (trimmed.startsWith("event:")) {
+          eventType = trimmed.slice(6).trim();
+        } else if (trimmed.startsWith("data:")) {
+          const eventData = trimmed.slice(5).trim();
           if (eventType && eventData) {
-            const parsed = JSON.parse(eventData);
-            if (eventType === "progress") {
-              const stepIdx = getStepIndex(parsed.step);
-              if (stepIdx >= 0 && stepIdx < STEP_COUNT) {
-                updateProgress(stepIdx, {
-                  name: parsed.file_name || "Audio",
-                  index: parsed.file_index || 0,
-                  count: parsed.file_count || 1,
-                });
+            try {
+              const parsed = JSON.parse(eventData);
+              if (eventType === "progress") {
+                const stepIdx = getStepIndex(parsed.step);
+                if (stepIdx >= 0 && stepIdx < STEP_COUNT) {
+                  updateProgress(stepIdx, {
+                    name: parsed.file_name || "Audio",
+                    index: parsed.file_index || 0,
+                    count: parsed.file_count || 1,
+                  });
+                }
+              } else if (eventType === "result") {
+                resultData = parsed;
+              } else if (eventType === "error") {
+                throw new Error(parsed.message || "Transcription failed.");
               }
-            } else if (eventType === "result") {
-              resultData = parsed;
+            } catch (parseErr) {
+              if (parseErr instanceof SyntaxError) {
+                console.error("SSE JSON parse error:", parseErr, eventData.slice(0, 200));
+              } else {
+                throw parseErr;
+              }
             }
           }
           eventType = null;
-          eventData = null;
         }
       }
     }
 
     updateProgress(STEP_COUNT);
     hideProgress();
+
+    // Always clean up loading placeholders
+    historyItems = historyItems.filter((h) => !h.loading);
+
     if (resultData) {
       if (resultData.results) {
-        historyItems = historyItems.filter((h) => !h.loading);
         resultData.results.forEach((item) => {
           historyCache.set(item.id, item);
           // Transfer blob URL from pending to permanent cache
@@ -1928,7 +1946,6 @@ async function uploadFiles(files, options = {}) {
           await selectHistory(resultData.results[0].id);
         }
       } else {
-        historyItems = historyItems.filter((h) => !h.loading);
         historyCache.set(resultData.id, resultData);
         // Transfer blob URL from pending to permanent cache
         const blobUrl = pendingAudioBlobs.get(resultData.file_name);
@@ -1939,6 +1956,10 @@ async function uploadFiles(files, options = {}) {
         renderHistoryList();
         await selectHistory(resultData.id);
       }
+    } else {
+      // No result received — show error and clean up
+      renderHistoryList();
+      showStatus("No transcription result received. Please try again.", true);
     }
     uploadPlaceholders = [];
   } catch (err) {
