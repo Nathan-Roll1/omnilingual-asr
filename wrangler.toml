@@ -8,6 +8,9 @@ binding = "DB"
 database_name = "omnitranscribe-db"
 database_id = "bd21be5c-318b-462b-a899-49c645836993"
 
+# GROQ_API_KEY — set in Cloudflare Pages dashboard under Settings > Environment Variables
+# Free tier: https://console.groq.com/keys
+
 # R2 bucket for audio file storage
 [[r2_buckets]]
 binding = "AUDIO_BUCKET"

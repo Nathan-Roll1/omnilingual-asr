@@ -84,9 +84,8 @@ const modalConfirm = document.getElementById("modal-confirm");
 const languageSelect = document.getElementById("language-select");
 const speakerCountSelect = document.getElementById("speaker-count");
 
-// Steps for Gemini API (uploading, transcribing, processing, done)
-// Also supports legacy local model steps (loading, diarizing, transcribing, aligning, done)
-const GEMINI_STEPS = ["uploading", "transcribing", "processing", "done"];
+// Steps for pipeline (uploading, transcribing, aligning, processing, done)
+const GEMINI_STEPS = ["uploading", "transcribing", "aligning", "processing", "done"];
 const LOCAL_STEPS = ["loading", "diarizing", "transcribing", "aligning", "done"];
 const STEPS = [...GEMINI_STEPS, ...LOCAL_STEPS]; // Combined for lookup
 const STEP_COUNT = 4;
