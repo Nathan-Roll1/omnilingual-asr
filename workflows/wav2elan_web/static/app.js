@@ -176,83 +176,82 @@ if (passwordInput) {
 }
 
 // Code-switching demo — permanent example in library
+// Text from actual Gemini transcription of the audio
 const DEMO_EXAMPLE = {
   id: "codeswitching-demo",
   file_name: "Samuel Speaking Lisu.mp3",
   audio_url: "/codeswitching-demo.mp3",
   created_at: "2024-01-01T00:00:00.000Z",
   isPermanent: true,
-  summary: "A single speaker demonstrates code-switching across Lisu, Mandarin Chinese, and English while discussing family and daily life. The tone is calm and conversational.",
+  summary: "A single male speaker delivers an enthusiastic speech in the Lisu language, discussing modern communication methods including Facebook and Messenger. The overall tone is positive and engaging.",
   detected_languages: [
     { code: "lis", language: "Lisu" },
-    { code: "cmn", language: "Mandarin Chinese" },
-    { code: "eng", language: "English" },
-    { code: "mya", language: "Burmese" }
+    { code: "en", language: "English" }
   ],
   segments: [
     {
-      start: 0.86, end: 3.42,
-      text: "ꓔꓱ ꓟꓲ ꓬꓲ ꓔꓬ ꓗꓪ ꓟꓯ ꓙꓵ ꓐꓴ ꓬꓲ ꓟꓲ",
-      speaker: "Samuel", emotion: "neutral",
+      start: 0.74, end: 2.04,
+      text: "Himileti mi kwa ti ama chu pibo. Nimi jo chu phe ti diti ti ja kwa ni.",
+      speaker: "Speaker 1", emotion: "happy",
       language: "Lisu", language_code: "lis",
       languages: [{ name: "Lisu", code: "lis" }],
-      translation: "Let me tell you about my family."
+      translation: "Greetings to all. I am here to share some information with you today."
     },
     {
-      start: 3.83, end: 5.90,
-      text: "就再去啊，一个",
-      speaker: "Samuel", emotion: "neutral",
-      language: "Mandarin Chinese", language_code: "cmn",
-      languages: [{ name: "Mandarin Chinese", code: "cmn" }],
-      translation: "Then go again, one more."
-    },
-    {
-      start: 6.22, end: 6.98,
-      text: "ꓠꓲꓹ ꓐꓯ ꓙꓵ ꓐꓯ",
-      speaker: "Samuel", emotion: "neutral",
+      start: 5, end: 11,
+      text: "Aka ka chwa ha da yi ge li su de ma nga akha la khu.",
+      speaker: "Speaker 1", emotion: "happy",
       language: "Lisu", language_code: "lis",
       languages: [{ name: "Lisu", code: "lis" }],
-      translation: "This village here."
+      translation: "This is a message for the Lisu people everywhere."
     },
     {
-      start: 7.47, end: 8.28,
-      text: "麻念",
-      speaker: "Samuel", emotion: "neutral",
-      language: "Mandarin Chinese", language_code: "cmn",
-      languages: [{ name: "Mandarin Chinese", code: "cmn" }],
-      translation: "Just thinking."
-    },
-    {
-      start: 8.87, end: 10.85,
-      text: "ꓡꓰ ꓢꓴ ꓔꓬ ꓠꓲ ꓙꓵ ꓗꓪ",
-      speaker: "Samuel", emotion: "neutral",
+      start: 11, end: 18,
+      text: "Yi za nyi za va amye da mi yi ti ja kho ja bo. Ada nyi mi li su.",
+      speaker: "Speaker 1", emotion: "neutral",
       language: "Lisu", language_code: "lis",
       languages: [{ name: "Lisu", code: "lis" }],
-      translation: "In the old days, our home."
+      translation: "Listen carefully to what I have to say. My Lisu brothers and sisters."
     },
     {
-      start: 11.19, end: 12.11,
-      text: "ꓠꓬ ꓙꓵ ꓖꓡ ꓟꓲ",
-      speaker: "Samuel", emotion: "neutral",
+      start: 22.58, end: 27.22,
+      text: "Wo di wu ka la su ni ti li ja la bua ni akha ka chwa. Ali kwa tya so li su bu nga mi.",
+      speaker: "Speaker 1", emotion: "happy",
       language: "Lisu", language_code: "lis",
       languages: [{ name: "Lisu", code: "lis" }],
-      translation: "The place where we lived."
+      translation: "May you all be well and prosperous. Wherever you are staying."
     },
     {
-      start: 12.32, end: 17.48,
-      text: "ꓠꓲꓹ ꓐꓯ ꓙ ꓥ ꓐꓯ ꓡ ꓐꓯ ꓮ ꓫꓵ ꓥ ꓐꓯ ꓟꓲ ꓢꓳ ꓟ ꓠꓬ ꓙ ꓖꓡ ꓟꓲ ꓬꓡ ꓢꓳ ꓕꓕꓰ ꓟ ꓢꓳ ꓠꓬ",
-      speaker: "Samuel", emotion: "neutral",
+      start: 141.80, end: 150.70,
+      text: "Amu hye kwa nye Facebook hye nyi nga le ma.",
+      speaker: "Speaker 1", emotion: "happy",
+      language: "Lisu", language_code: "lis",
+      languages: [{ name: "Lisu", code: "lis" }, { name: "English", code: "en" }],
+      translation: "In this modern era, we are all using Facebook."
+    },
+    {
+      start: 150.70, end: 156.00,
+      text: "Messenger hye nyi nga ma bo lisu mo ma sa nu bu ma ku.",
+      speaker: "Speaker 1", emotion: "happy",
+      language: "Lisu", language_code: "lis",
+      languages: [{ name: "Lisu", code: "lis" }, { name: "English", code: "en" }],
+      translation: "Using Messenger as well, so that the Lisu people can stay connected."
+    },
+    {
+      start: 158.78, end: 170.64,
+      text: "Messenger gwa bi Facebook gwa bi ja le ho ba la ma lisu tu ma ji ji su wa le se le.",
+      speaker: "Speaker 1", emotion: "happy",
+      language: "Lisu", language_code: "lis",
+      languages: [{ name: "Lisu", code: "lis" }, { name: "English", code: "en" }],
+      translation: "Through Messenger and Facebook, we share our culture and stay in touch."
+    },
+    {
+      start: 178.94, end: 192.04,
+      text: "Li su tu ma de su na ma ga mi li zi nu ngu ami ji jwa nye li su tu de su wa zi. Gu le nye ali kwa tya su nga mi ja le ho de ka khu khua pi la.",
+      speaker: "Speaker 1", emotion: "happy",
       language: "Lisu", language_code: "lis",
       languages: [{ name: "Lisu", code: "lis" }],
-      translation: "Here in this village, our family has lived for generations, and we will continue to stay."
-    },
-    {
-      start: 17.85, end: 21.07,
-      text: "如那瓜家里活，我吧",
-      speaker: "Samuel", emotion: "neutral",
-      language: "Mandarin Chinese", language_code: "cmn",
-      languages: [{ name: "Mandarin Chinese", code: "cmn" }, { name: "Lisu", code: "lis" }],
-      translation: "If at home doing things, then me, right."
+      translation: "Let us continue to support each other as Lisu people. May you find happiness wherever you reside."
     }
   ]
 };
