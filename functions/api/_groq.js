@@ -9,57 +9,21 @@ async function alignWithGroq({ apiKey, audioBuffer, filename }) {
     return null;
   }
 
-  // Build multipart form data manually (no FormData in CF Workers for blobs)
-  const boundary = "----GroqBoundary" + Date.now();
   const mimeType = getAudioMime(filename);
 
-  const parts = [];
-
-  // model field
-  parts.push(
-    `--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\nwhisper-large-v3-turbo`
-  );
-
-  // response_format field
-  parts.push(
-    `--${boundary}\r\nContent-Disposition: form-data; name="response_format"\r\n\r\nverbose_json`
-  );
-
-  // timestamp_granularities[] field
-  parts.push(
-    `--${boundary}\r\nContent-Disposition: form-data; name="timestamp_granularities[]"\r\n\r\nword`
-  );
-
-  // audio file field
-  const fileHeader =
-    `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${mimeType}\r\n\r\n`;
-  const fileFooter = `\r\n--${boundary}--\r\n`;
-
-  // Assemble the text parts
-  const textPart = parts.join("\r\n") + "\r\n";
-
-  // Concatenate: textPart + fileHeader + audioBuffer + fileFooter
-  const enc = new TextEncoder();
-  const textBytes = enc.encode(textPart);
-  const headerBytes = enc.encode(fileHeader);
-  const footerBytes = enc.encode(fileFooter);
-  const audioBytes = new Uint8Array(audioBuffer);
-
-  const totalLength = textBytes.length + headerBytes.length + audioBytes.length + footerBytes.length;
-  const body = new Uint8Array(totalLength);
-  let offset = 0;
-  body.set(textBytes, offset); offset += textBytes.length;
-  body.set(headerBytes, offset); offset += headerBytes.length;
-  body.set(audioBytes, offset); offset += audioBytes.length;
-  body.set(footerBytes, offset);
+  // Cloudflare Workers support FormData + Blob natively
+  const form = new FormData();
+  form.append("model", "whisper-large-v3-turbo");
+  form.append("response_format", "verbose_json");
+  form.append("timestamp_granularities[]", "word");
+  form.append("file", new Blob([audioBuffer], { type: mimeType }), filename);
 
   const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
-      "Content-Type": `multipart/form-data; boundary=${boundary}`,
     },
-    body: body.buffer,
+    body: form,
   });
 
   if (!res.ok) {
@@ -86,23 +50,18 @@ function mergeWordTimestamps(segments, groqWords) {
   const words = [...groqWords].sort((a, b) => a.start - b.start);
 
   return segments.map((seg) => {
-    // Find words that overlap with this segment's time range
-    // Use a generous window: words starting within segment bounds,
-    // or words that overlap the segment range
     const segStart = seg.start;
     const segEnd = seg.end;
 
+    // Find words that overlap with this segment's time range
+    // Use a generous window (150ms) to catch boundary words
     const matchedWords = words.filter((w) => {
-      const wStart = w.start;
-      const wEnd = w.end;
-      // Word overlaps with segment if word starts before segment ends
-      // and word ends after segment starts
-      return wStart < segEnd + 0.15 && wEnd > segStart - 0.15;
+      return w.start < segEnd + 0.15 && w.end > segStart - 0.15;
     });
 
     if (matchedWords.length > 0) {
       seg.words = matchedWords.map((w) => ({
-        word: w.word,
+        word: w.word.trim(),
         start: w.start,
         end: w.end,
       }));

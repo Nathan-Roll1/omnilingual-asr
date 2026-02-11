@@ -88,7 +88,7 @@ const speakerCountSelect = document.getElementById("speaker-count");
 const GEMINI_STEPS = ["uploading", "transcribing", "aligning", "processing", "done"];
 const LOCAL_STEPS = ["loading", "diarizing", "transcribing", "aligning", "done"];
 const STEPS = [...GEMINI_STEPS, ...LOCAL_STEPS]; // Combined for lookup
-const STEP_COUNT = 4;
+const STEP_COUNT = 5;
 
 let historyCache = new Map();
 let historyItems = [];
@@ -436,28 +436,17 @@ function resetProgress() {
 }
 
 function getStepIndex(stepName) {
-  // Map step names from both Gemini and local model to a 0-3 index
-  const geminiStepMap = {
+  const stepMap = {
     "uploading": 0,
     "transcribing": 1,
-    "processing": 2,
-    "done": 3
-  };
-  const localStepMap = {
+    "aligning": 2,
+    "processing": 3,
+    "done": 4,
+    // Legacy local model steps
     "loading": 0,
     "diarizing": 1,
-    "transcribing": 2,
-    "aligning": 3,
-    "done": 3
   };
-
-  if (geminiStepMap[stepName] !== undefined) {
-    return geminiStepMap[stepName];
-  }
-  if (localStepMap[stepName] !== undefined) {
-    return localStepMap[stepName];
-  }
-  return 0;
+  return stepMap[stepName] ?? 0;
 }
 
 function updateProgress(stepIndex, fileMeta = null) {
