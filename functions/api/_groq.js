@@ -37,11 +37,21 @@ async function alignWithGroq({ apiKey, audioBuffer, filename }) {
 }
 
 /**
- * Merge Groq word timestamps into Gemini segments.
- * Each Gemini segment has start/end times; we find which Groq words
- * fall within each segment's time range and attach them.
+ * Refine Gemini segment timestamps using Groq word-level timestamps.
+ *
+ * Strategy: Gemini provides the authoritative text, speaker, language,
+ * emotion, and translation. Groq provides accurate acoustic timestamps.
+ * We use Groq's word boundaries to snap each Gemini segment's start/end
+ * to the nearest actual speech boundary, without replacing any text.
+ *
+ * Algorithm:
+ * 1. Collect all Groq word boundaries into a sorted timeline
+ * 2. For each Gemini segment, find the cluster of Groq words that
+ *    best overlaps its time range
+ * 3. Snap segment start to the earliest matching word start,
+ *    and segment end to the latest matching word end
  */
-function mergeWordTimestamps(segments, groqWords) {
+function refineTimestamps(segments, groqWords) {
   if (!groqWords || !groqWords.length || !segments || !segments.length) {
     return segments;
   }
@@ -49,24 +59,43 @@ function mergeWordTimestamps(segments, groqWords) {
   // Sort words by start time
   const words = [...groqWords].sort((a, b) => a.start - b.start);
 
-  return segments.map((seg) => {
+  // Build a consumed set so each Groq word is only used once
+  const consumed = new Set();
+
+  return segments.map((seg, segIdx) => {
     const segStart = seg.start;
     const segEnd = seg.end;
+    const segDuration = segEnd - segStart;
 
-    // Find words that overlap with this segment's time range
-    // Use a generous window (150ms) to catch boundary words
-    const matchedWords = words.filter((w) => {
-      return w.start < segEnd + 0.15 && w.end > segStart - 0.15;
-    });
+    // Find Groq words overlapping this segment's time range
+    // Use a window proportional to segment length (min 0.3s, max 2s)
+    const tolerance = Math.min(2.0, Math.max(0.3, segDuration * 0.15));
 
-    if (matchedWords.length > 0) {
-      seg.words = matchedWords.map((w) => ({
-        word: w.word.trim(),
-        start: w.start,
-        end: w.end,
-      }));
+    const candidates = [];
+    for (let i = 0; i < words.length; i++) {
+      if (consumed.has(i)) continue;
+      const w = words[i];
+      // Word overlaps segment if it starts before segment ends
+      // and ends after segment starts (with tolerance)
+      if (w.start < segEnd + tolerance && w.end > segStart - tolerance) {
+        candidates.push(i);
+      }
     }
 
+    if (candidates.length > 0) {
+      // Mark these words as consumed
+      candidates.forEach((i) => consumed.add(i));
+
+      // Snap segment boundaries to Groq word boundaries
+      const firstWord = words[candidates[0]];
+      const lastWord = words[candidates[candidates.length - 1]];
+
+      seg.start = firstWord.start;
+      seg.end = lastWord.end;
+    }
+
+    // Ensure segment text is from Gemini (never replaced)
+    // words array stays null — we display Gemini's seg.text as-is
     return seg;
   });
 }
@@ -81,4 +110,4 @@ function getAudioMime(filename) {
   return "audio/wav";
 }
 
-export { alignWithGroq, mergeWordTimestamps };
+export { alignWithGroq, refineTimestamps };
