@@ -1813,10 +1813,14 @@ async function activateTranscript(data) {
     
     // Reset audio source connection when switching tracks
     audioSource = null;
+    
+    // Auto-show waveform panel when audio is available
+    showWaveformPanel();
   } else {
-    // No audio available - hide player or show disabled state
+    // No audio available - hide player and waveform
     audioEl.src = "";
     playerBar.classList.remove("visible");
+    hideWaveformPanel();
   }
   
   // Show canvas header with file info
@@ -2353,7 +2357,7 @@ const tabWaveform = document.getElementById("tab-waveform");
 const tabSpectrogram = document.getElementById("tab-spectrogram");
 const zoomInBtn = document.getElementById("zoom-in");
 const zoomOutBtn = document.getElementById("zoom-out");
-const waveformCloseBtn = document.getElementById("waveform-close");
+const waveformCollapseBtn = document.getElementById("waveform-collapse");
 
 let audioContext = null;
 let analyser = null;
@@ -2415,20 +2419,55 @@ function ensureAudioSource() {
   }
 }
 
-function toggleWaveformPanel() {
-  isWaveformVisible = !isWaveformVisible;
-  waveformPanel.classList.toggle("visible", isWaveformVisible);
-  toggleWaveformBtn.setAttribute("aria-pressed", isWaveformVisible);
+function showWaveformPanel() {
+  if (isWaveformVisible) return;
+  isWaveformVisible = true;
+  waveformPanel.classList.remove("hidden");
+  waveformPanel.classList.remove("collapsed");
+  if (toggleWaveformBtn) toggleWaveformBtn.setAttribute("aria-pressed", "true");
   
-  if (isWaveformVisible) {
+  // Small delay to let layout settle before measuring canvas
+  requestAnimationFrame(() => {
     ensureAudioSource();
     resizeWaveformCanvas();
     computeWaveformData();
     startVisualization();
     renderSegmentsOnWaveform();
     updateTimeRuler();
+  });
+}
+
+function hideWaveformPanel() {
+  isWaveformVisible = false;
+  waveformPanel.classList.add("hidden");
+  if (toggleWaveformBtn) toggleWaveformBtn.setAttribute("aria-pressed", "false");
+  stopVisualization();
+}
+
+function toggleWaveformPanel() {
+  if (isWaveformVisible) {
+    hideWaveformPanel();
   } else {
-    stopVisualization();
+    showWaveformPanel();
+  }
+}
+
+function toggleWaveformCollapse() {
+  waveformPanel.classList.toggle("collapsed");
+  // If expanding, resize canvas
+  if (!waveformPanel.classList.contains("collapsed")) {
+    requestAnimationFrame(() => {
+      resizeWaveformCanvas();
+      if (currentWaveformView === "waveform") {
+        drawWaveform();
+      } else {
+        computeSpectrogram();
+      }
+      renderSegmentsOnWaveform();
+      renderWordsOnWaveform();
+      updateTimeRuler();
+      updatePlayhead();
+    });
   }
 }
 
@@ -3083,8 +3122,8 @@ if (toggleWaveformBtn) {
   toggleWaveformBtn.addEventListener("click", toggleWaveformPanel);
 }
 
-if (waveformCloseBtn) {
-  waveformCloseBtn.addEventListener("click", toggleWaveformPanel);
+if (waveformCollapseBtn) {
+  waveformCollapseBtn.addEventListener("click", toggleWaveformCollapse);
 }
 
 if (tabWaveform) {
@@ -3633,13 +3672,18 @@ audioEl.addEventListener("timeupdate", () => {
 
 // Re-initialize visualization when audio source changes
 audioEl.addEventListener("loadedmetadata", () => {
-  if (isWaveformVisible) {
+  // Auto-show the panel when audio metadata is ready
+  if (!isWaveformVisible && audioEl.src) {
+    showWaveformPanel();
+  } else if (isWaveformVisible) {
     ensureAudioSource();
+    resizeWaveformCanvas();
     computeWaveformData().then(() => {
       if (currentWaveformView === "spectrogram") computeSpectrogram();
     });
     updateTimeRuler();
     renderSegmentsOnWaveform();
+    renderWordsOnWaveform();
   }
 });
 
@@ -4391,10 +4435,10 @@ function updateFrequencyAxis() {
 // UPDATE VISUALIZATION HOOKS
 // =============================================
 
-// Extend toggleWaveformPanel to initialize new features
-const originalToggleWaveformPanel = toggleWaveformPanel;
-window.toggleWaveformPanel = function() {
-  originalToggleWaveformPanel();
+// Extend showWaveformPanel to initialize new features
+const originalShowWaveformPanel = showWaveformPanel;
+window.showWaveformPanel = function() {
+  originalShowWaveformPanel();
   
   if (isWaveformVisible) {
     renderWordsOnWaveform();
