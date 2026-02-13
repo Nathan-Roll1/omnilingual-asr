@@ -4425,4 +4425,215 @@ document.addEventListener("click", (e) => {
   }
 });
 
-console.log("OmniTranscribe Pro loaded. Press ? for keyboard shortcuts, I for IPA picker.");
+// =============================================
+// SIDEBAR TOGGLE
+// =============================================
+const sidebarToggleBtn = document.getElementById("sidebar-toggle");
+const shellEl = document.getElementById("shell");
+
+if (sidebarToggleBtn && shellEl) {
+  // Restore sidebar state from localStorage
+  const savedCollapsed = localStorage.getItem("omni_sidebar_collapsed") === "true";
+  if (savedCollapsed) {
+    shellEl.classList.add("sidebar-collapsed");
+    document.documentElement.style.setProperty("--sidebar-width", "0px");
+  }
+
+  sidebarToggleBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    shellEl.classList.toggle("sidebar-collapsed");
+    const collapsed = shellEl.classList.contains("sidebar-collapsed");
+    document.documentElement.style.setProperty("--sidebar-width", collapsed ? "0px" : "260px");
+    localStorage.setItem("omni_sidebar_collapsed", collapsed);
+  });
+}
+
+// =============================================
+// SEARCH (Cmd+K)
+// =============================================
+const searchOverlay = document.getElementById("search-overlay");
+const searchInputEl = document.getElementById("search-input");
+const searchResultsEl = document.getElementById("search-results");
+const searchTrigger = document.getElementById("search-trigger");
+
+function openSearch() {
+  if (!searchOverlay) return;
+  searchOverlay.classList.remove("hidden");
+  if (searchInputEl) {
+    searchInputEl.value = "";
+    searchInputEl.focus();
+  }
+  renderSearchResults("");
+}
+
+function closeSearch() {
+  if (!searchOverlay) return;
+  searchOverlay.classList.add("hidden");
+  if (searchInputEl) searchInputEl.value = "";
+}
+
+function renderSearchResults(query) {
+  if (!searchResultsEl) return;
+  if (!query || query.length < 2 || !activeData?.segments) {
+    searchResultsEl.innerHTML = '<div class="search-empty">Type to search across all transcript segments</div>';
+    return;
+  }
+
+  const q = query.toLowerCase();
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(${escaped})`, "gi");
+  const matches = [];
+
+  activeData.segments.forEach((seg, idx) => {
+    const text = (seg.text || "").toLowerCase();
+    const speaker = (seg.speaker || "").toLowerCase();
+    const lang = (seg.language || "").toLowerCase();
+    const translation = (seg.translation || "").toLowerCase();
+
+    if (text.includes(q) || speaker.includes(q) || lang.includes(q) || translation.includes(q)) {
+      matches.push({ seg, idx });
+    }
+  });
+
+  if (matches.length === 0) {
+    searchResultsEl.innerHTML = '<div class="search-empty">No results for "' + query.replace(/</g, "&lt;") + '"</div>';
+    return;
+  }
+
+  searchResultsEl.innerHTML = matches.slice(0, 50).map(({ seg, idx }) => {
+    const text = seg.text || "";
+    const highlighted = text.replace(regex, "<mark>$1</mark>");
+    const timeStr = typeof formatTime === "function" ? formatTime(seg.start) : String(seg.start);
+    return '<div class="search-result" data-seg="' + idx + '">' +
+      '<div class="search-result-time">' + timeStr + '</div>' +
+      '<div>' +
+        '<div class="search-result-text">' + highlighted + '</div>' +
+        '<div class="search-result-speaker">' + (seg.speaker || "Unknown") + (seg.language ? " \u00b7 " + seg.language : "") + '</div>' +
+      '</div>' +
+    '</div>';
+  }).join("");
+
+  // Click to jump
+  searchResultsEl.querySelectorAll(".search-result").forEach((el) => {
+    el.addEventListener("click", () => {
+      const segIdx = parseInt(el.dataset.seg, 10);
+      const seg = activeData.segments[segIdx];
+      if (seg && audioEl) {
+        audioEl.currentTime = seg.start;
+        if (audioEl.paused) audioEl.play();
+      }
+      closeSearch();
+      // Scroll transcript to this segment
+      const segmentEl = document.querySelector('.segment[data-segment="' + segIdx + '"]');
+      if (segmentEl) {
+        segmentEl.scrollIntoView({ behavior: "smooth", block: "center" });
+        segmentEl.classList.add("selected");
+        setTimeout(() => segmentEl.classList.remove("selected"), 2000);
+      }
+    });
+  });
+}
+
+if (searchTrigger) {
+  searchTrigger.addEventListener("click", openSearch);
+}
+
+if (searchInputEl) {
+  searchInputEl.addEventListener("input", () => {
+    renderSearchResults(searchInputEl.value);
+  });
+}
+
+if (searchOverlay) {
+  searchOverlay.addEventListener("click", (e) => {
+    if (e.target === searchOverlay) closeSearch();
+  });
+  searchOverlay.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      e.preventDefault();
+      closeSearch();
+    }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const results = searchResultsEl.querySelectorAll(".search-result");
+      if (results.length === 0) return;
+      const active = searchResultsEl.querySelector(".search-result.active");
+      let nextIdx = 0;
+      if (active) {
+        active.classList.remove("active");
+        const currentIdx = Array.from(results).indexOf(active);
+        nextIdx = e.key === "ArrowDown"
+          ? Math.min(currentIdx + 1, results.length - 1)
+          : Math.max(currentIdx - 1, 0);
+      }
+      results[nextIdx].classList.add("active");
+      results[nextIdx].scrollIntoView({ block: "nearest" });
+    }
+    if (e.key === "Enter") {
+      const active = searchResultsEl.querySelector(".search-result.active");
+      if (active) active.click();
+    }
+  });
+}
+
+// Cmd+K global handler — opens search
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+    e.preventDefault();
+    e.stopPropagation();
+    if (searchOverlay && !searchOverlay.classList.contains("hidden")) {
+      closeSearch();
+    } else {
+      openSearch();
+    }
+  }
+}, { capture: true });
+
+// =============================================
+// TOOLBAR INTEGRATION
+// =============================================
+
+// Toolbar shortcuts button
+const toolbarShortcutsBtn = document.getElementById("toolbar-shortcuts");
+if (toolbarShortcutsBtn) {
+  toolbarShortcutsBtn.addEventListener("click", () => {
+    if (typeof toggleShortcutsModal === "function") {
+      toggleShortcutsModal();
+    }
+  });
+}
+
+// =============================================
+// CROSSHAIR CURSOR ON WAVEFORM
+// =============================================
+(function initCrosshair() {
+  const container = document.getElementById("waveform-split-container");
+  if (!container) return;
+  
+  // Create crosshair elements
+  const crosshairV = document.createElement("div");
+  crosshairV.style.cssText = "position:absolute;top:0;bottom:24px;width:1px;background:rgba(255,255,255,0.3);pointer-events:none;z-index:55;display:none;";
+  container.appendChild(crosshairV);
+  
+  const crosshairH = document.createElement("div");
+  crosshairH.style.cssText = "position:absolute;left:0;right:0;height:1px;background:rgba(255,255,255,0.2);pointer-events:none;z-index:55;display:none;";
+  container.appendChild(crosshairH);
+  
+  container.addEventListener("mousemove", (e) => {
+    const rect = container.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    crosshairV.style.left = x + "px";
+    crosshairV.style.display = "block";
+    crosshairH.style.top = y + "px";
+    crosshairH.style.display = "block";
+  });
+  
+  container.addEventListener("mouseleave", () => {
+    crosshairV.style.display = "none";
+    crosshairH.style.display = "none";
+  });
+})();
+
+console.log("OmniTranscribe Studio loaded. Press ? for shortcuts, \u2318K to search.");
