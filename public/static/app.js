@@ -182,21 +182,23 @@ if (authForm) {
       const confirm = authConfirm?.value || "";
       if (password !== confirm) {
         if (authError) { authError.textContent = "Passwords do not match."; authError.classList.remove("hidden"); }
-        setAuthMode("register");
-        if (authSubmit) authSubmit.disabled = false;
+        if (authSubmit) { authSubmit.disabled = false; authSubmit.textContent = "Create account"; }
         return;
       }
     }
 
     try {
       const endpoint = authMode === "register" ? "/api/auth/register" : "/api/auth/login";
+      const payload = JSON.stringify({ email, password });
+      console.log("[auth]", authMode, endpoint, "email:", email, "pw-len:", password.length);
       const res = await _origFetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: payload,
       });
 
       const data = await res.json();
+      console.log("[auth] response", res.status, data);
       if (!res.ok) {
         throw new Error(data.error || "Authentication failed.");
       }
@@ -205,13 +207,17 @@ if (authForm) {
       hideAuth();
       fetchHistory();
     } catch (err) {
+      console.error("[auth] error:", err.message);
       if (authError) {
         authError.textContent = err.message;
         authError.classList.remove("hidden");
       }
     } finally {
-      setAuthMode(authMode); // Reset button text
-      if (authSubmit) authSubmit.disabled = false;
+      // Reset button text without hiding the error message
+      if (authSubmit) {
+        authSubmit.disabled = false;
+        authSubmit.textContent = authMode === "register" ? "Create account" : "Sign in";
+      }
     }
   });
 }
