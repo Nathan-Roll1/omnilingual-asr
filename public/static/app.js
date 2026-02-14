@@ -2731,19 +2731,46 @@ function getSpectrogramFFTSize(windowLength, sampleRate) {
   return Math.max(256, Math.min(fft, 4096));
 }
 
-// ---- Spectrogram cache ----
+// ---- Spectrogram viewport cache ----
+// Only computes a window around the current view (not the entire audio).
+// Window = visible 5 s + 10 s buffer each side = up to ~25 s cached.
+// Recomputes when the view scrolls outside the cached region.
+
+const MAX_SPECTROGRAM_SECONDS = 5; // never show more than this
+
 let spectrogramCache = null;
+// { offscreen, numCols, usableBins, maxFreqHz, hopSamples, fftSize,
+//   sampleRate, cachedStartSample, cachedEndSample,
+//   intensity: Float32Array, formants: null | Array }
 
 function invalidateSpectrogramCache() {
   spectrogramCache = null;
 }
 
-async function buildSpectrogramCache() {
+// Minimum zoom so the spectrogram never exceeds MAX_SPECTROGRAM_SECONDS
+function getMinSpectrogramZoom() {
+  const dur = audioEl.duration || 0;
+  if (dur <= MAX_SPECTROGRAM_SECONDS) return 1;
+  return dur / MAX_SPECTROGRAM_SECONDS;
+}
+
+// Enforce spectrogram zoom floor + auto-center on playhead
+function enforceSpectrogramZoom() {
+  const minZoom = getMinSpectrogramZoom();
+  if (waveformZoom < minZoom) {
+    waveformZoom = minZoom;
+  }
+}
+
+// Build (or rebuild) the spectrogram cache for a sample range.
+// centerTime = seconds — the center of the desired viewport.
+async function buildSpectrogramCache(centerTime) {
   if (!audioBufferCache) return;
 
   const channelData = audioBufferCache.getChannelData(0);
   const sampleRate = audioBufferCache.sampleRate;
   const totalSamples = channelData.length;
+  const duration = totalSamples / sampleRate;
   const nyquist = sampleRate / 2;
 
   if (!spectrogramMaxFreq || spectrogramSettings.maxFrequency === 0) {
@@ -2757,11 +2784,26 @@ async function buildSpectrogramCache() {
   const frequencyBinCount = fftSize / 2;
   const usableBins = Math.max(1, Math.floor(frequencyBinCount * maxBinRatio));
 
-  // Adaptive hop — target ~10 000 columns for the full audio
+  // Cache window: visible (5 s) + 10 s buffer each side = 25 s
+  const bufferSec = 10;
+  const halfWindow = MAX_SPECTROGRAM_SECONDS / 2 + bufferSec;
+  const ct = centerTime != null ? centerTime : (audioEl.currentTime || 0);
+  let cacheStartTime = Math.max(0, ct - halfWindow);
+  let cacheEndTime = Math.min(duration, ct + halfWindow);
+  // For short audio, just cache the whole thing
+  if (duration <= MAX_SPECTROGRAM_SECONDS + bufferSec * 2) {
+    cacheStartTime = 0;
+    cacheEndTime = duration;
+  }
+  const cacheStartSample = Math.floor(cacheStartTime * sampleRate);
+  const cacheEndSample = Math.min(totalSamples, Math.ceil(cacheEndTime * sampleRate));
+  const cacheSamples = cacheEndSample - cacheStartSample;
+
+  // High-res hop: target ~2000 cols per 5 s → ~400 cols/s
   const minHop = Math.max(1, Math.floor(fftSize / 4));
-  const targetCols = 10000;
-  const hopSize = Math.max(minHop, Math.floor(totalSamples / targetCols));
-  const numCols = Math.max(1, Math.floor((totalSamples - fftSize) / hopSize) + 1);
+  const targetColsPerSec = 400;
+  const hopSize = Math.max(minHop, Math.floor(sampleRate / targetColsPerSec));
+  const numCols = Math.max(1, Math.floor((cacheSamples - fftSize) / hopSize) + 1);
 
   // Hanning window
   const hann = new Float32Array(fftSize);
@@ -2771,7 +2813,7 @@ async function buildSpectrogramCache() {
   const preEmph = spectrogramSettings.preEmphasis > 0 ? 0.97 : 0;
   const dynRange = spectrogramSettings.dynamicRange;
 
-  // Offscreen canvas at native spectrogram resolution
+  // Offscreen canvas
   const offscreen = document.createElement("canvas");
   offscreen.width = numCols;
   offscreen.height = usableBins;
@@ -2779,14 +2821,13 @@ async function buildSpectrogramCache() {
   const imageData = offCtx.createImageData(numCols, usableBins);
   const px = imageData.data;
 
-  const formantCache = new Array(numCols);
   const intensityCache = new Float32Array(numCols);
 
-  // --- Pass 1: quick scan for global max (~200 sampled columns) ---
+  // --- Pass 1: quick scan for global max ---
   let globalMax = 0;
-  const scanStep = Math.max(1, Math.floor(numCols / 200));
+  const scanStep = Math.max(1, Math.floor(numCols / 100));
   for (let col = 0; col < numCols; col += scanStep) {
-    const start = col * hopSize;
+    const start = cacheStartSample + col * hopSize;
     const real = new Float32Array(fftSize);
     const imag = new Float32Array(fftSize);
     for (let i = 0; i < fftSize; i++) {
@@ -2806,12 +2847,12 @@ async function buildSpectrogramCache() {
   }
   const refLevel = globalMax || 1;
 
-  // --- Pass 2: full computation (chunked to avoid UI freeze) ---
+  // --- Pass 2: full computation (chunked async) ---
   const CHUNK = 500;
-  for (let cStart = 0; cStart < numCols; cStart += CHUNK) {
-    const cEnd = Math.min(cStart + CHUNK, numCols);
-    for (let col = cStart; col < cEnd; col++) {
-      const start = col * hopSize;
+  for (let cS = 0; cS < numCols; cS += CHUNK) {
+    const cE = Math.min(cS + CHUNK, numCols);
+    for (let col = cS; col < cE; col++) {
+      const start = cacheStartSample + col * hopSize;
       const real = new Float32Array(fftSize);
       const imag = new Float32Array(fftSize);
       let rmsSum = 0;
@@ -2829,18 +2870,68 @@ async function buildSpectrogramCache() {
       intensityCache[col] = 10 * Math.log10(rmsSum / fftSize + 1e-10);
       FFT.fft(real, imag);
 
-      // Render column pixels
       for (let bin = 0; bin < usableBins; bin++) {
         const mag = Math.sqrt(real[bin] * real[bin] + imag[bin] * imag[bin]);
         const dB = mag > 0 ? 20 * Math.log10(mag / refLevel) : -dynRange;
         const norm = Math.max(0, Math.min(1, (dB + dynRange) / dynRange));
         const gray = 255 - Math.floor(255 * norm);
-        const py2 = usableBins - 1 - bin; // high freq at top
+        const py2 = usableBins - 1 - bin;
         const idx = (py2 * numCols + col) * 4;
         px[idx] = gray; px[idx + 1] = gray; px[idx + 2] = gray; px[idx + 3] = 255;
       }
+    }
+    if (cE < numCols) await new Promise(r => setTimeout(r, 0));
+  }
 
-      // Formant estimation via spectral peak-picking
+  offCtx.putImageData(imageData, 0, 0);
+
+  spectrogramCache = {
+    offscreen, numCols, usableBins, maxFreqHz,
+    hopSamples: hopSize, fftSize, totalSamples, sampleRate,
+    cachedStartSample: cacheStartSample,
+    cachedEndSample: cacheEndSample,
+    intensity: intensityCache,
+    formants: null, // computed lazily when toggled on
+  };
+
+  if (typeof updateFrequencyAxis === "function") updateFrequencyAxis();
+}
+
+// Lazy formant computation — only when user toggles formants on
+async function ensureFormantCache() {
+  if (!spectrogramCache || spectrogramCache.formants) return;
+  const cache = spectrogramCache;
+  const channelData = audioBufferCache.getChannelData(0);
+  const totalSamples = channelData.length;
+  const fftSize = cache.fftSize;
+  const usableBins = cache.usableBins;
+  const maxFreqHz = cache.maxFreqHz;
+
+  const hann = new Float32Array(fftSize);
+  for (let i = 0; i < fftSize; i++) {
+    hann[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (fftSize - 1)));
+  }
+  const preEmph = spectrogramSettings.preEmphasis > 0 ? 0.97 : 0;
+  const formantArr = new Array(cache.numCols);
+
+  const CHUNK = 500;
+  for (let cS = 0; cS < cache.numCols; cS += CHUNK) {
+    const cE = Math.min(cS + CHUNK, cache.numCols);
+    for (let col = cS; col < cE; col++) {
+      const start = cache.cachedStartSample + col * cache.hopSamples;
+      const real = new Float32Array(fftSize);
+      const imag = new Float32Array(fftSize);
+      for (let i = 0; i < fftSize; i++) {
+        let s = (start + i < totalSamples) ? channelData[start + i] : 0;
+        if (preEmph > 0 && i > 0) {
+          const prev = (start + i - 1 >= 0 && start + i - 1 < totalSamples)
+            ? channelData[start + i - 1] : 0;
+          s -= preEmph * prev;
+        }
+        real[i] = s * hann[i];
+      }
+      FFT.fft(real, imag);
+
       const smoothW = Math.max(1, Math.floor(usableBins / 50));
       const smoothed = new Float32Array(usableBins);
       for (let b = 0; b < usableBins; b++) {
@@ -2853,31 +2944,21 @@ async function buildSpectrogramCache() {
       }
       const peaks = [];
       const minBin = Math.floor((200 / maxFreqHz) * usableBins);
-      const maxBin = Math.min(usableBins - 1, Math.floor((5500 / maxFreqHz) * usableBins));
-      for (let b = Math.max(1, minBin); b < Math.min(usableBins - 1, maxBin); b++) {
+      const maxBin2 = Math.min(usableBins - 1, Math.floor((5500 / maxFreqHz) * usableBins));
+      for (let b = Math.max(1, minBin); b < Math.min(usableBins - 1, maxBin2); b++) {
         if (smoothed[b] > smoothed[b - 1] && smoothed[b] > smoothed[b + 1]) {
           peaks.push({ freq: (b / usableBins) * maxFreqHz, mag: smoothed[b] });
         }
       }
       peaks.sort((a, b) => b.mag - a.mag);
-      formantCache[col] = peaks.slice(0, 5).map(p => p.freq).sort((a, b) => a - b);
+      formantArr[col] = peaks.slice(0, 5).map(p => p.freq).sort((a, b) => a - b);
     }
-    // Yield to UI thread
-    if (cEnd < numCols) await new Promise(r => setTimeout(r, 0));
+    if (cE < cache.numCols) await new Promise(r => setTimeout(r, 0));
   }
-
-  offCtx.putImageData(imageData, 0, 0);
-
-  spectrogramCache = {
-    offscreen, numCols, usableBins, maxFreqHz,
-    hopSamples: hopSize, fftSize, totalSamples, sampleRate,
-    formants: formantCache, intensity: intensityCache,
-  };
-
-  if (typeof updateFrequencyAxis === "function") updateFrequencyAxis();
+  cache.formants = formantArr;
 }
 
-// ---- Fast render from cache (runs on every scroll / zoom / pan) ----
+// ---- Fast render from viewport cache ----
 function renderSpectrogramView() {
   if (!spectrogramCache || !spectrogramCtx) return;
 
@@ -2886,28 +2967,45 @@ function renderSpectrogramView() {
   const height = canvas.height;
   const dpr = window.devicePixelRatio || 1;
   const cache = spectrogramCache;
+  const dur = audioEl.duration || 1;
 
   spectrogramCtx.fillStyle = "#ffffff";
   spectrogramCtx.fillRect(0, 0, width, height);
 
-  // Visible column range
-  let startCol = 0, endCol = cache.numCols;
+  // Visible time range
+  let visStart = 0, visEnd = dur;
   if (waveformZoom > 1 && waveformData) {
     const logW = width / dpr;
     const totalPts = waveformData.length;
-    const dur = audioEl.duration;
-    const t0 = (waveformScrollOffset / totalPts) * dur;
-    const t1 = ((waveformScrollOffset + logW) / totalPts) * dur;
-    startCol = Math.floor((t0 * cache.sampleRate) / cache.hopSamples);
-    endCol = Math.ceil((t1 * cache.sampleRate) / cache.hopSamples);
+    visStart = (waveformScrollOffset / totalPts) * dur;
+    visEnd = ((waveformScrollOffset + logW) / totalPts) * dur;
   }
-  startCol = Math.max(0, startCol);
-  endCol = Math.min(cache.numCols, endCol);
+  // Clamp to MAX_SPECTROGRAM_SECONDS
+  if (visEnd - visStart > MAX_SPECTROGRAM_SECONDS) {
+    const mid = (visStart + visEnd) / 2;
+    visStart = mid - MAX_SPECTROGRAM_SECONDS / 2;
+    visEnd = mid + MAX_SPECTROGRAM_SECONDS / 2;
+    if (visStart < 0) { visEnd -= visStart; visStart = 0; }
+    if (visEnd > dur) { visStart -= (visEnd - dur); visEnd = dur; }
+  }
+
+  // Check if visible range is inside the cached region; if not, rebuild
+  const visSampleStart = Math.floor(visStart * cache.sampleRate);
+  const visSampleEnd = Math.ceil(visEnd * cache.sampleRate);
+  if (visSampleStart < cache.cachedStartSample || visSampleEnd > cache.cachedEndSample) {
+    // Trigger async rebuild centered on new view (will call render again)
+    buildSpectrogramCache((visStart + visEnd) / 2).then(() => renderSpectrogramView());
+    return;
+  }
+
+  // Map visible samples to cache columns
+  const startCol = Math.max(0, Math.floor((visSampleStart - cache.cachedStartSample) / cache.hopSamples));
+  const endCol = Math.min(cache.numCols, Math.ceil((visSampleEnd - cache.cachedStartSample) / cache.hopSamples));
 
   const rulerH = 24 * dpr;
   const drawH = height - rulerH;
 
-  // GPU-accelerated blit from offscreen canvas — instant
+  // GPU-accelerated blit — instant
   spectrogramCtx.imageSmoothingEnabled = true;
   spectrogramCtx.imageSmoothingQuality = "high";
   spectrogramCtx.drawImage(
@@ -2916,7 +3014,7 @@ function renderSpectrogramView() {
     0, 0, width, drawH
   );
 
-  // Formant overlay (colored dots: F1 red, F2 orange, F3 green, F4 blue, F5 purple)
+  // Formant overlay
   if (showFormants && cache.formants) {
     const colors = ["#ff0000", "#ff6600", "#00bb00", "#0066ff", "#aa00ff"];
     const dotR = 1.5 * dpr;
@@ -2936,7 +3034,7 @@ function renderSpectrogramView() {
     }
   }
 
-  // Intensity overlay (yellow curve)
+  // Intensity overlay
   if (showIntensity && cache.intensity) {
     let minI = Infinity, maxI = -Infinity;
     for (let col = startCol; col < endCol; col++) {
@@ -2982,12 +3080,12 @@ async function computeSpectrogram() {
     }
   }
 
-  // Build cache once per audio / settings change
+  // Build cache centered on current view
   if (!spectrogramCache) {
-    await buildSpectrogramCache();
+    await buildSpectrogramCache(audioEl.currentTime || 0);
   }
 
-  // Fast render from cache
+  // Fast render from cache (may trigger lazy rebuild if view moved)
   renderSpectrogramView();
 }
 
@@ -3318,9 +3416,27 @@ if (tabSpectrogram) {
     spectrogramCanvas.classList.remove("hidden");
     waveformCanvas.classList.add("hidden");
     ensureAudioSource();
-    // Clear and start fresh
-    // spectrogramCtx.clearRect(0, 0, spectrogramCanvas.width, spectrogramCanvas.height);
-    computeSpectrogram();
+
+    // Enforce 5-second max, center on playhead
+    const minZoom = getMinSpectrogramZoom();
+    if (waveformZoom < minZoom) {
+      waveformZoom = minZoom;
+      computeWaveformData().then(() => {
+        // Center on current playhead
+        const container = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
+        const canvasWidth = container.offsetWidth;
+        const totalWidth = waveformData ? waveformData.length : canvasWidth;
+        const playheadPos = (audioEl.currentTime / (audioEl.duration || 1)) * totalWidth;
+        waveformScrollOffset = Math.max(0, Math.min(playheadPos - canvasWidth / 2, totalWidth - canvasWidth));
+        computeSpectrogram();
+        renderSegmentsOnWaveform();
+        renderWordsOnWaveform();
+        updateTimeRuler();
+        updatePlayhead();
+      });
+    } else {
+      computeSpectrogram();
+    }
   });
 }
 
@@ -3352,9 +3468,10 @@ if (zoomInBtn) {
 if (zoomOutBtn) {
   zoomOutBtn.addEventListener("click", () => {
     const oldZoom = waveformZoom;
-    waveformZoom = Math.max(waveformZoom / 1.5, 1); // Min zoom is 1 (fit to width)
+    // In spectrogram view, floor at the 5-second limit
+    const minZoom = (currentWaveformView === "spectrogram") ? getMinSpectrogramZoom() : 1;
+    waveformZoom = Math.max(waveformZoom / 1.5, minZoom);
     
-    // Scale scroll offset proportionally, reset to 0 when fully zoomed out
     if (waveformZoom <= 1) {
       waveformScrollOffset = 0;
     } else {
@@ -3433,11 +3550,21 @@ function zoomToSelection() {
   });
 }
 
-// Zoom to fit entire audio
+// Zoom to fit entire audio (respects 5-second cap in spectrogram view)
 function zoomToAll() {
-  waveformZoom = 1;
-  waveformScrollOffset = 0;
+  const minZoom = (currentWaveformView === "spectrogram") ? getMinSpectrogramZoom() : 1;
+  waveformZoom = minZoom;
   computeWaveformData().then(() => {
+    if (waveformZoom <= 1) {
+      waveformScrollOffset = 0;
+    } else {
+      // Center on playhead
+      const container = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
+      const canvasWidth = container.offsetWidth;
+      const totalWidth = waveformData ? waveformData.length : canvasWidth;
+      const pos = (audioEl.currentTime / (audioEl.duration || 1)) * totalWidth;
+      waveformScrollOffset = Math.max(0, Math.min(pos - canvasWidth / 2, totalWidth - canvasWidth));
+    }
     if (currentWaveformView === "waveform") drawWaveform();
     else computeSpectrogram();
     renderSegmentsOnWaveform();
@@ -3526,11 +3653,12 @@ if (waveformCanvasContainer) {
     // --- Pinch-to-zoom (trackpad pinch sends ctrlKey + deltaY) ---
     if (e.ctrlKey) {
       const rect = waveformCanvasContainer.getBoundingClientRect();
-      const cursorX = e.clientX - rect.left; // cursor position in logical px
+      const cursorX = e.clientX - rect.left;
 
       const oldZoom = waveformZoom;
-      const zoomFactor = 1 - e.deltaY * 0.01; // trackpad deltaY is small
-      const newZoom = Math.max(1, Math.min(oldZoom * zoomFactor, 50));
+      const zoomFactor = 1 - e.deltaY * 0.01;
+      const minZoom = (currentWaveformView === "spectrogram") ? getMinSpectrogramZoom() : 1;
+      const newZoom = Math.max(minZoom, Math.min(oldZoom * zoomFactor, 50));
 
       if (newZoom === oldZoom) return;
 
@@ -3565,6 +3693,7 @@ if (waveformCanvasContainer) {
     }
 
     // --- Normal scroll / two-finger pan ---
+    // Allow panning when zoomed beyond fit (includes spectrogram min-zoom > 1)
     if (waveformZoom <= 1 || !waveformData) return;
 
     const totalWidth = waveformData.length;
@@ -4648,7 +4777,7 @@ document.addEventListener("keydown", (e) => {
       zoomToAll();
       break;
 
-    // ---- F: toggle formant overlay ----
+    // ---- F: toggle formant overlay (lazy computation) ----
     case "f":
     case "F":
       if (!e.ctrlKey && !e.metaKey) {
@@ -4656,7 +4785,11 @@ document.addEventListener("keydown", (e) => {
         showFormants = !showFormants;
         const fb = document.getElementById("toggle-formants");
         if (fb) fb.classList.toggle("active", showFormants);
-        if (currentWaveformView === "spectrogram") renderSpectrogramView();
+        if (showFormants && spectrogramCache && !spectrogramCache.formants) {
+          ensureFormantCache().then(() => {
+            if (currentWaveformView === "spectrogram") renderSpectrogramView();
+          });
+        } else if (currentWaveformView === "spectrogram") renderSpectrogramView();
       }
       break;
 
@@ -4795,12 +4928,15 @@ if (spectPreemph) {
   });
 }
 
-// Formant toggle button
+// Formant toggle button (lazy — computes formants on first toggle)
 const toggleFormantsBtn = document.getElementById("toggle-formants");
 if (toggleFormantsBtn) {
-  toggleFormantsBtn.addEventListener("click", () => {
+  toggleFormantsBtn.addEventListener("click", async () => {
     showFormants = !showFormants;
     toggleFormantsBtn.classList.toggle("active", showFormants);
+    if (showFormants && spectrogramCache && !spectrogramCache.formants) {
+      await ensureFormantCache();
+    }
     if (currentWaveformView === "spectrogram") renderSpectrogramView();
   });
 }
