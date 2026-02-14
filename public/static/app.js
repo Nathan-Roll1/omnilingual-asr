@@ -2377,11 +2377,7 @@ if (waveformCanvas) {
   waveformCtx = waveformCanvas.getContext("2d");
 }
 if (spectrogramCanvas) {
-  // Use willReadFrequently to optimize frequent pixel operations
-  spectrogramCtx = spectrogramCanvas.getContext("2d", { willReadFrequently: true });
-  if (spectrogramCtx) {
-    spectrogramCtx.imageSmoothingEnabled = false;
-  }
+  spectrogramCtx = spectrogramCanvas.getContext("2d");
 }
 
 function initAudioContext() {
@@ -2546,7 +2542,8 @@ async function computeWaveformData() {
 // Clear audio buffer cache and reset zoom when audio source changes
 audioEl.addEventListener("emptied", () => {
   audioBufferCache = null;
-  spectrogramMaxFreq = 0; // reset so next audio re-detects
+  spectrogramMaxFreq = 0;
+  spectrogramCache = null;
   waveformZoom = 1;
   waveformScrollOffset = 0;
   waveformData = null;
@@ -2684,18 +2681,32 @@ const FFT = {
   }
 };
 
+// =============================================
+// SPECTROGRAM CACHE & PRAAT-LIKE ENGINE
+// =============================================
+
+// Spectrogram analysis settings (Praat-style defaults)
+let spectrogramSettings = {
+  windowLength: 0.005,  // 5 ms — Praat wideband default
+  dynamicRange: 70,     // dB
+  maxFrequency: 0,      // 0 = auto-detect
+  preEmphasis: 6,       // dB/octave from 50 Hz
+};
+
+// Overlay toggles
+let showFormants = false;
+let showIntensity = false;
+
 // Dynamic max frequency — auto-detect energy ceiling of the audio
-let spectrogramMaxFreq = 0; // 0 = auto-detect
+let spectrogramMaxFreq = 0;
 
 function detectMaxFrequency(channelData, sampleRate) {
-  // Sample a few windows across the audio and find the highest bin with energy
   const fftSize = 2048;
-  const numSamples = 20;
-  const step = Math.floor(channelData.length / numSamples);
-  const threshold = 0.001; // Minimum magnitude to count as "energy"
+  const numProbes = 20;
+  const step = Math.floor(channelData.length / numProbes);
+  const threshold = 0.001;
   let highestBin = 0;
-
-  for (let s = 0; s < numSamples; s++) {
+  for (let s = 0; s < numProbes; s++) {
     const start = s * step;
     const timeSlice = new Float32Array(fftSize);
     for (let i = 0; i < fftSize; i++) {
@@ -2704,24 +2715,256 @@ function detectMaxFrequency(channelData, sampleRate) {
     }
     const spectrum = FFT.computeSpectrum(timeSlice, fftSize);
     for (let i = spectrum.length - 1; i > highestBin; i--) {
-      if (spectrum[i] > threshold) {
-        highestBin = i;
-        break;
+      if (spectrum[i] > threshold) { highestBin = i; break; }
+    }
+  }
+  const binFreq = (highestBin / (fftSize / 2)) * (sampleRate / 2);
+  const nyquist = sampleRate / 2;
+  const capped = Math.min(Math.ceil(binFreq / 1000) * 1000 + 1000, nyquist);
+  return Math.max(4000, capped);
+}
+
+function getSpectrogramFFTSize(windowLength, sampleRate) {
+  const samples = windowLength * sampleRate;
+  let fft = 256;
+  while (fft < samples) fft *= 2;
+  return Math.max(256, Math.min(fft, 4096));
+}
+
+// ---- Spectrogram cache ----
+let spectrogramCache = null;
+
+function invalidateSpectrogramCache() {
+  spectrogramCache = null;
+}
+
+async function buildSpectrogramCache() {
+  if (!audioBufferCache) return;
+
+  const channelData = audioBufferCache.getChannelData(0);
+  const sampleRate = audioBufferCache.sampleRate;
+  const totalSamples = channelData.length;
+  const nyquist = sampleRate / 2;
+
+  if (!spectrogramMaxFreq || spectrogramSettings.maxFrequency === 0) {
+    spectrogramMaxFreq = detectMaxFrequency(channelData, sampleRate);
+  }
+  const maxFreqHz = spectrogramSettings.maxFrequency > 0
+    ? spectrogramSettings.maxFrequency : spectrogramMaxFreq;
+  const maxBinRatio = Math.min(1, maxFreqHz / nyquist);
+
+  const fftSize = getSpectrogramFFTSize(spectrogramSettings.windowLength, sampleRate);
+  const frequencyBinCount = fftSize / 2;
+  const usableBins = Math.max(1, Math.floor(frequencyBinCount * maxBinRatio));
+
+  // Adaptive hop — target ~10 000 columns for the full audio
+  const minHop = Math.max(1, Math.floor(fftSize / 4));
+  const targetCols = 10000;
+  const hopSize = Math.max(minHop, Math.floor(totalSamples / targetCols));
+  const numCols = Math.max(1, Math.floor((totalSamples - fftSize) / hopSize) + 1);
+
+  // Hanning window
+  const hann = new Float32Array(fftSize);
+  for (let i = 0; i < fftSize; i++) {
+    hann[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (fftSize - 1)));
+  }
+  const preEmph = spectrogramSettings.preEmphasis > 0 ? 0.97 : 0;
+  const dynRange = spectrogramSettings.dynamicRange;
+
+  // Offscreen canvas at native spectrogram resolution
+  const offscreen = document.createElement("canvas");
+  offscreen.width = numCols;
+  offscreen.height = usableBins;
+  const offCtx = offscreen.getContext("2d");
+  const imageData = offCtx.createImageData(numCols, usableBins);
+  const px = imageData.data;
+
+  const formantCache = new Array(numCols);
+  const intensityCache = new Float32Array(numCols);
+
+  // --- Pass 1: quick scan for global max (~200 sampled columns) ---
+  let globalMax = 0;
+  const scanStep = Math.max(1, Math.floor(numCols / 200));
+  for (let col = 0; col < numCols; col += scanStep) {
+    const start = col * hopSize;
+    const real = new Float32Array(fftSize);
+    const imag = new Float32Array(fftSize);
+    for (let i = 0; i < fftSize; i++) {
+      let s = (start + i < totalSamples) ? channelData[start + i] : 0;
+      if (preEmph > 0 && i > 0) {
+        const prev = (start + i - 1 >= 0 && start + i - 1 < totalSamples)
+          ? channelData[start + i - 1] : 0;
+        s -= preEmph * prev;
+      }
+      real[i] = s * hann[i];
+    }
+    FFT.fft(real, imag);
+    for (let b = 0; b < usableBins; b++) {
+      const mag = Math.sqrt(real[b] * real[b] + imag[b] * imag[b]);
+      if (mag > globalMax) globalMax = mag;
+    }
+  }
+  const refLevel = globalMax || 1;
+
+  // --- Pass 2: full computation (chunked to avoid UI freeze) ---
+  const CHUNK = 500;
+  for (let cStart = 0; cStart < numCols; cStart += CHUNK) {
+    const cEnd = Math.min(cStart + CHUNK, numCols);
+    for (let col = cStart; col < cEnd; col++) {
+      const start = col * hopSize;
+      const real = new Float32Array(fftSize);
+      const imag = new Float32Array(fftSize);
+      let rmsSum = 0;
+
+      for (let i = 0; i < fftSize; i++) {
+        let s = (start + i < totalSamples) ? channelData[start + i] : 0;
+        rmsSum += s * s;
+        if (preEmph > 0 && i > 0) {
+          const prev = (start + i - 1 >= 0 && start + i - 1 < totalSamples)
+            ? channelData[start + i - 1] : 0;
+          s -= preEmph * prev;
+        }
+        real[i] = s * hann[i];
+      }
+      intensityCache[col] = 10 * Math.log10(rmsSum / fftSize + 1e-10);
+      FFT.fft(real, imag);
+
+      // Render column pixels
+      for (let bin = 0; bin < usableBins; bin++) {
+        const mag = Math.sqrt(real[bin] * real[bin] + imag[bin] * imag[bin]);
+        const dB = mag > 0 ? 20 * Math.log10(mag / refLevel) : -dynRange;
+        const norm = Math.max(0, Math.min(1, (dB + dynRange) / dynRange));
+        const gray = 255 - Math.floor(255 * norm);
+        const py2 = usableBins - 1 - bin; // high freq at top
+        const idx = (py2 * numCols + col) * 4;
+        px[idx] = gray; px[idx + 1] = gray; px[idx + 2] = gray; px[idx + 3] = 255;
+      }
+
+      // Formant estimation via spectral peak-picking
+      const smoothW = Math.max(1, Math.floor(usableBins / 50));
+      const smoothed = new Float32Array(usableBins);
+      for (let b = 0; b < usableBins; b++) {
+        let sum = 0, cnt = 0;
+        for (let j = Math.max(0, b - smoothW); j <= Math.min(usableBins - 1, b + smoothW); j++) {
+          sum += Math.sqrt(real[j] * real[j] + imag[j] * imag[j]);
+          cnt++;
+        }
+        smoothed[b] = sum / cnt;
+      }
+      const peaks = [];
+      const minBin = Math.floor((200 / maxFreqHz) * usableBins);
+      const maxBin = Math.min(usableBins - 1, Math.floor((5500 / maxFreqHz) * usableBins));
+      for (let b = Math.max(1, minBin); b < Math.min(usableBins - 1, maxBin); b++) {
+        if (smoothed[b] > smoothed[b - 1] && smoothed[b] > smoothed[b + 1]) {
+          peaks.push({ freq: (b / usableBins) * maxFreqHz, mag: smoothed[b] });
+        }
+      }
+      peaks.sort((a, b) => b.mag - a.mag);
+      formantCache[col] = peaks.slice(0, 5).map(p => p.freq).sort((a, b) => a - b);
+    }
+    // Yield to UI thread
+    if (cEnd < numCols) await new Promise(r => setTimeout(r, 0));
+  }
+
+  offCtx.putImageData(imageData, 0, 0);
+
+  spectrogramCache = {
+    offscreen, numCols, usableBins, maxFreqHz,
+    hopSamples: hopSize, fftSize, totalSamples, sampleRate,
+    formants: formantCache, intensity: intensityCache,
+  };
+
+  if (typeof updateFrequencyAxis === "function") updateFrequencyAxis();
+}
+
+// ---- Fast render from cache (runs on every scroll / zoom / pan) ----
+function renderSpectrogramView() {
+  if (!spectrogramCache || !spectrogramCtx) return;
+
+  const canvas = spectrogramCanvas;
+  const width = canvas.width;
+  const height = canvas.height;
+  const dpr = window.devicePixelRatio || 1;
+  const cache = spectrogramCache;
+
+  spectrogramCtx.fillStyle = "#ffffff";
+  spectrogramCtx.fillRect(0, 0, width, height);
+
+  // Visible column range
+  let startCol = 0, endCol = cache.numCols;
+  if (waveformZoom > 1 && waveformData) {
+    const logW = width / dpr;
+    const totalPts = waveformData.length;
+    const dur = audioEl.duration;
+    const t0 = (waveformScrollOffset / totalPts) * dur;
+    const t1 = ((waveformScrollOffset + logW) / totalPts) * dur;
+    startCol = Math.floor((t0 * cache.sampleRate) / cache.hopSamples);
+    endCol = Math.ceil((t1 * cache.sampleRate) / cache.hopSamples);
+  }
+  startCol = Math.max(0, startCol);
+  endCol = Math.min(cache.numCols, endCol);
+
+  const rulerH = 24 * dpr;
+  const drawH = height - rulerH;
+
+  // GPU-accelerated blit from offscreen canvas — instant
+  spectrogramCtx.imageSmoothingEnabled = true;
+  spectrogramCtx.imageSmoothingQuality = "high";
+  spectrogramCtx.drawImage(
+    cache.offscreen,
+    startCol, 0, Math.max(1, endCol - startCol), cache.usableBins,
+    0, 0, width, drawH
+  );
+
+  // Formant overlay (colored dots: F1 red, F2 orange, F3 green, F4 blue, F5 purple)
+  if (showFormants && cache.formants) {
+    const colors = ["#ff0000", "#ff6600", "#00bb00", "#0066ff", "#aa00ff"];
+    const dotR = 1.5 * dpr;
+    const colRange = endCol - startCol || 1;
+    const step = Math.max(1, Math.floor(colRange / (width / dpr)));
+    for (let f = 0; f < 5; f++) {
+      spectrogramCtx.fillStyle = colors[f];
+      for (let col = startCol; col < endCol; col += step) {
+        const fm = cache.formants[col];
+        if (!fm || fm[f] === undefined) continue;
+        const freq = fm[f];
+        if (freq < 100 || freq > cache.maxFreqHz) continue;
+        const x = ((col - startCol) / colRange) * width;
+        const y = (1 - freq / cache.maxFreqHz) * drawH;
+        spectrogramCtx.fillRect(x - dotR, y - dotR, dotR * 2, dotR * 2);
       }
     }
   }
 
-  // Convert bin to Hz, round up to nearest 1000, add some headroom
-  const binFreq = (highestBin / (fftSize / 2)) * (sampleRate / 2);
-  const nyquist = sampleRate / 2;
-  const capped = Math.min(Math.ceil(binFreq / 1000) * 1000 + 1000, nyquist);
-  return Math.max(4000, capped); // At least 4kHz
+  // Intensity overlay (yellow curve)
+  if (showIntensity && cache.intensity) {
+    let minI = Infinity, maxI = -Infinity;
+    for (let col = startCol; col < endCol; col++) {
+      const v = cache.intensity[col];
+      if (v < minI) minI = v;
+      if (v > maxI) maxI = v;
+    }
+    const range = maxI - minI || 1;
+    const colRange = endCol - startCol || 1;
+    spectrogramCtx.strokeStyle = "rgba(255, 204, 0, 0.85)";
+    spectrogramCtx.lineWidth = 2 * dpr;
+    spectrogramCtx.beginPath();
+    let first = true;
+    for (let col = startCol; col < endCol; col++) {
+      const x = ((col - startCol) / colRange) * width;
+      const n = (cache.intensity[col] - minI) / range;
+      const y = (1 - n) * drawH;
+      if (first) { spectrogramCtx.moveTo(x, y); first = false; }
+      else spectrogramCtx.lineTo(x, y);
+    }
+    spectrogramCtx.stroke();
+  }
 }
 
 async function computeSpectrogram() {
   if (!audioEl.duration || !spectrogramCtx) return;
 
-  // Ensure we have audio buffer
+  // Ensure audio buffer
   if (!audioBufferCache) {
     if (audioEl.src) {
       try {
@@ -2739,146 +2982,18 @@ async function computeSpectrogram() {
     }
   }
 
-  const canvas = spectrogramCanvas;
-  const width = canvas.width;
-  const height = canvas.height;
-  const dpr = window.devicePixelRatio || 1;
-
-  // White background
-  spectrogramCtx.fillStyle = "#ffffff";
-  spectrogramCtx.fillRect(0, 0, width, height);
-
-  const channelData = audioBufferCache.getChannelData(0);
-  const sampleRate = audioBufferCache.sampleRate;
-  const totalSamples = channelData.length;
-  const nyquist = sampleRate / 2;
-
-  // Auto-detect max frequency if not set
-  if (!spectrogramMaxFreq) {
-    spectrogramMaxFreq = detectMaxFrequency(channelData, sampleRate);
-  }
-  const maxFreqHz = spectrogramMaxFreq;
-  const maxBinRatio = maxFreqHz / nyquist; // fraction of bins to use
-
-  // FFT parameters — larger for better frequency resolution
-  const fftSize = 2048;
-  const frequencyBinCount = fftSize / 2;
-  const usableBins = Math.floor(frequencyBinCount * maxBinRatio);
-  const hopSize = fftSize / 4; // 75% overlap for smooth time axis
-
-  // Calculate visible sample range
-  let startSample = 0;
-  let endSample = totalSamples;
-
-  if (waveformZoom > 1 && waveformData) {
-    const totalWaveformPoints = waveformData.length;
-    const duration = audioEl.duration;
-    const canvasWidthLogical = canvas.width / dpr;
-    const visibleStartTime = (waveformScrollOffset / totalWaveformPoints) * duration;
-    const visibleEndTime = ((waveformScrollOffset + canvasWidthLogical) / totalWaveformPoints) * duration;
-    startSample = Math.floor(visibleStartTime * sampleRate);
-    endSample = Math.floor(visibleEndTime * sampleRate);
-  }
-  startSample = Math.max(0, startSample);
-  endSample = Math.min(totalSamples, endSample);
-
-  const visibleSamples = endSample - startSample;
-
-  // Pre-compute all FFT columns at hop intervals
-  const numColumns = Math.max(1, Math.floor(visibleSamples / hopSize));
-  const spectra = new Array(numColumns);
-
-  // Pre-allocate Hanning window
-  const hannWindow = new Float32Array(fftSize);
-  for (let i = 0; i < fftSize; i++) {
-    hannWindow[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (fftSize - 1)));
+  // Build cache once per audio / settings change
+  if (!spectrogramCache) {
+    await buildSpectrogramCache();
   }
 
-  // Compute all spectra (with Hanning window baked in)
-  for (let col = 0; col < numColumns; col++) {
-    const center = startSample + col * hopSize;
-    const windowStart = center - fftSize / 2;
-    const real = new Float32Array(fftSize);
-    const imag = new Float32Array(fftSize);
-
-    for (let i = 0; i < fftSize; i++) {
-      const idx = windowStart + i;
-      real[i] = (idx >= 0 && idx < totalSamples ? channelData[idx] : 0) * hannWindow[i];
-    }
-
-    FFT.fft(real, imag);
-
-    // Store only the magnitude of usable bins (up to maxFreq)
-    const mag = new Float32Array(usableBins);
-    for (let i = 0; i < usableBins; i++) {
-      mag[i] = Math.sqrt(real[i] * real[i] + imag[i] * imag[i]);
-    }
-    spectra[col] = mag;
-  }
-
-  // Find global max for dB normalization
-  let globalMax = 0;
-  for (let col = 0; col < numColumns; col++) {
-    for (let i = 0; i < usableBins; i++) {
-      if (spectra[col][i] > globalMax) globalMax = spectra[col][i];
-    }
-  }
-  const refLevel = globalMax || 1;
-  const dynamicRangeDB = 70; // Show 70dB of dynamic range
-
-  // Render to image data with bilinear interpolation
-  const imageData = spectrogramCtx.createImageData(width, height);
-  const data = imageData.data;
-
-  for (let px = 0; px < width; px++) {
-    // Map pixel x to fractional column index
-    const colF = (px / width) * (numColumns - 1);
-    const col0 = Math.floor(colF);
-    const col1 = Math.min(col0 + 1, numColumns - 1);
-    const colFrac = colF - col0;
-
-    for (let py = 0; py < height; py++) {
-      // Map pixel y to frequency bin (top = high freq, bottom = low)
-      const normalizedY = py / (height - 1 || 1);
-      const binF = (1 - normalizedY) * (usableBins - 1);
-      const bin0 = Math.floor(binF);
-      const bin1 = Math.min(bin0 + 1, usableBins - 1);
-      const binFrac = binF - bin0;
-
-      // Bilinear interpolation across time and frequency
-      const m00 = spectra[col0][bin0];
-      const m01 = spectra[col0][bin1];
-      const m10 = spectra[col1][bin0];
-      const m11 = spectra[col1][bin1];
-
-      const mTop = m00 + (m10 - m00) * colFrac;
-      const mBot = m01 + (m11 - m01) * colFrac;
-      const magnitude = mTop + (mBot - mTop) * binFrac;
-
-      // Convert to dB, normalize to dynamic range
-      const dB = magnitude > 0 ? 20 * Math.log10(magnitude / refLevel) : -dynamicRangeDB;
-      const normalized = Math.max(0, Math.min(1, (dB + dynamicRangeDB) / dynamicRangeDB));
-
-      // Praat-style grayscale: white = silence, black = loud
-      const gray = Math.floor(255 * (1 - normalized));
-
-      const idx = (py * width + px) * 4;
-      data[idx] = gray;
-      data[idx + 1] = gray;
-      data[idx + 2] = gray;
-      data[idx + 3] = 255;
-    }
-  }
-
-  spectrogramCtx.putImageData(imageData, 0, 0);
-
-  // Keep frequency axis in sync with detected max
-  if (typeof updateFrequencyAxis === "function") updateFrequencyAxis();
+  // Fast render from cache
+  renderSpectrogramView();
 }
 
 // Replaces the real-time drawSpectrogram
 function drawSpectrogram() {
-  // No-op for loop, handled by computeSpectrogram
+  // No-op — handled by computeSpectrogram / renderSpectrogramView
 }
 
 function updatePlayhead() {
@@ -3153,10 +3268,9 @@ function startVisualization() {
        
        const targetOffset = Math.max(0, Math.min(playheadPosition - canvasWidth / 2, totalWidth - canvasWidth));
        
-       // Only redraw if scroll changed significantly to avoid thrashing
        if (Math.abs(targetOffset - waveformScrollOffset) > 5) {
          waveformScrollOffset = targetOffset;
-         computeSpectrogram();
+         renderSpectrogramView(); // fast blit from cache
          renderSegmentsOnWaveform();
          renderWordsOnWaveform();
          updateTimeRuler();
@@ -3261,47 +3375,147 @@ if (zoomOutBtn) {
   });
 }
 
-// Click on waveform/spectrogram container to seek
-function handleCanvasClick(e) {
-  if (!audioEl.duration || !waveformCanvasContainer) return;
+// =============================================
+// PRAAT-STYLE CLICK + DRAG SELECTION & SEEK
+// =============================================
 
-  // Ignore clicks on drag handles
-  if (e.target.closest(".waveform-segment-handle") || e.target.closest(".waveform-word-handle")) return;
-  
-  // Ignore shift+click (used for selection)
-  if (e.shiftKey) return;
-
-  const rect = waveformCanvasContainer.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const canvasWidth = rect.width;
-
-  let newTime;
-
-  // Apply zoom/scroll calculation for ALL views, not just waveform
+// Convert an x-pixel position (relative to container) to a time value
+function xToTime(x, container) {
+  const duration = audioEl.duration;
+  if (!duration) return 0;
   if (waveformZoom > 1 && waveformData) {
-    // When zoomed, calculate position relative to scroll offset
     const totalWidth = waveformData.length;
-    const clickPositionInData = x + waveformScrollOffset;
-    // Clamp to valid range
-    const clampedPosition = Math.max(0, Math.min(clickPositionInData, totalWidth));
-    newTime = (clampedPosition / totalWidth) * audioEl.duration;
-  } else {
-    newTime = (x / canvasWidth) * audioEl.duration;
+    const visibleStartTime = (waveformScrollOffset / totalWidth) * duration;
+    const visibleDuration = (container.offsetWidth / totalWidth) * duration;
+    return visibleStartTime + (x / container.offsetWidth) * visibleDuration;
   }
-
-  // Seek to clicked position (clamp to valid range)
-  audioEl.currentTime = Math.max(0, Math.min(newTime, audioEl.duration));
-
-  // If already playing, keep playing. If paused, stay paused.
-  if (!audioEl.paused) {
-    audioEl.play();
-  }
-  updatePlayhead();
+  return (x / container.offsetWidth) * duration;
 }
 
+// Play the visible time window
+function playVisibleWindow() {
+  if (!audioEl.duration) return;
+  const container = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
+  const t0 = xToTime(0, container);
+  audioEl.currentTime = t0;
+  audioEl.play();
+}
+
+// Zoom to show only the current selection
+function zoomToSelection() {
+  if (selectionStart === null || selectionEnd === null) return;
+  if (!audioEl.duration) return;
+  const dur = audioEl.duration;
+  const selDur = selectionEnd - selectionStart;
+  if (selDur < 0.01) return;
+
+  const container = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
+  const canvasWidth = container.offsetWidth;
+
+  // Calculate zoom so selection fills ~90% of the view
+  const newZoom = Math.min(50, (dur / selDur) * 0.9);
+  waveformZoom = Math.max(1, newZoom);
+
+  computeWaveformData().then(() => {
+    const totalWidth = waveformData ? waveformData.length : canvasWidth;
+    // Scroll so selection is centered
+    const selMid = (selectionStart + selectionEnd) / 2;
+    const midInData = (selMid / dur) * totalWidth;
+    waveformScrollOffset = Math.max(0, Math.min(midInData - canvasWidth / 2, totalWidth - canvasWidth));
+
+    if (currentWaveformView === "waveform") drawWaveform();
+    else computeSpectrogram();
+    renderSegmentsOnWaveform();
+    renderWordsOnWaveform();
+    updateTimeRuler();
+    updatePlayhead();
+    updateSelectionDisplay();
+  });
+}
+
+// Zoom to fit entire audio
+function zoomToAll() {
+  waveformZoom = 1;
+  waveformScrollOffset = 0;
+  computeWaveformData().then(() => {
+    if (currentWaveformView === "waveform") drawWaveform();
+    else computeSpectrogram();
+    renderSegmentsOnWaveform();
+    renderWordsOnWaveform();
+    updateTimeRuler();
+    updatePlayhead();
+    updateSelectionDisplay();
+  });
+}
+
+let _isDragging = false;
+let _dragStartX = 0;
+let _dragStartTime = 0;
+const DRAG_THRESHOLD = 3;
+
 if (waveformCanvasContainer) {
-  waveformCanvasContainer.addEventListener("pointerdown", handleCanvasClick, true);
-  
+  // Praat-style: click to seek, click+drag to select, shift+click to extend
+  waveformCanvasContainer.addEventListener("mousedown", (e) => {
+    if (!audioEl.duration) return;
+    if (e.target.closest(".waveform-segment-handle") || e.target.closest(".waveform-word-handle")) return;
+    if (e.button !== 0) return;
+
+    const rect = waveformCanvasContainer.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    _dragStartX = e.clientX;
+    _dragStartTime = xToTime(x, waveformCanvasContainer);
+    _isDragging = true;
+
+    // Shift+click: extend existing selection
+    if (e.shiftKey && selectionStart !== null) {
+      isSelecting = true;
+      if (_dragStartTime < selectionStart) selectionStart = _dragStartTime;
+      else selectionEnd = _dragStartTime;
+      updateSelectionDisplay();
+      e.preventDefault();
+      return;
+    }
+
+    isSelecting = false;
+    e.preventDefault();
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (!_isDragging) return;
+    if (Math.abs(e.clientX - _dragStartX) > DRAG_THRESHOLD && !isSelecting) {
+      isSelecting = true;
+      selectionStart = _dragStartTime;
+      selectionEnd = _dragStartTime;
+    }
+    if (isSelecting) {
+      const rect = waveformCanvasContainer.getBoundingClientRect();
+      const x = Math.max(0, Math.min(e.clientX - rect.left, waveformCanvasContainer.offsetWidth));
+      const t = xToTime(x, waveformCanvasContainer);
+      if (t < _dragStartTime) { selectionStart = t; selectionEnd = _dragStartTime; }
+      else { selectionStart = _dragStartTime; selectionEnd = t; }
+      updateSelectionDisplay();
+    }
+  });
+
+  document.addEventListener("mouseup", () => {
+    if (!_isDragging) return;
+    _isDragging = false;
+    if (isSelecting) {
+      isSelecting = false;
+      if (selectionEnd - selectionStart < 0.01) {
+        clearSelection();
+        audioEl.currentTime = Math.max(0, Math.min(_dragStartTime, audioEl.duration));
+        if (!audioEl.paused) audioEl.play();
+        updatePlayhead();
+      }
+    } else {
+      audioEl.currentTime = Math.max(0, Math.min(_dragStartTime, audioEl.duration));
+      if (!audioEl.paused) audioEl.play();
+      updatePlayhead();
+      clearSelection();
+    }
+  });
+
   // Wheel / trackpad: pinch-to-zoom (ctrlKey) + two-finger pan
   waveformCanvasContainer.addEventListener("wheel", (e) => {
     e.preventDefault();
@@ -4101,78 +4315,7 @@ if (loopSelectionBtn) {
   loopSelectionBtn.addEventListener("click", toggleLoop);
 }
 
-// Selection via drag on waveform
-const waveformOverlays = document.getElementById("waveform-overlays");
-if (waveformOverlays) {
-  let dragStartX = 0;
-  let dragStartTime = 0;
-  
-  waveformOverlays.addEventListener("mousedown", (e) => {
-    if (e.target.closest(".waveform-word-handle") || e.target.closest(".waveform-segment-handle")) return;
-    if (e.shiftKey) {
-      // Shift+click to create selection
-      isSelecting = true;
-      dragStartX = e.clientX;
-      const container = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
-      const rect = container.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const duration = audioEl.duration;
-      
-      if (waveformZoom > 1 && waveformData) {
-        const totalWidth = waveformData.length;
-        const visibleStartTime = (waveformScrollOffset / totalWidth) * duration;
-        const visibleDuration = ((container.offsetWidth) / totalWidth) * duration;
-        dragStartTime = visibleStartTime + (x / container.offsetWidth) * visibleDuration;
-      } else {
-        dragStartTime = (x / container.offsetWidth) * duration;
-      }
-      
-      selectionStart = dragStartTime;
-      selectionEnd = dragStartTime;
-      updateSelectionDisplay();
-      e.preventDefault();
-    }
-  });
-  
-  document.addEventListener("mousemove", (e) => {
-    if (!isSelecting) return;
-    
-    const container = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
-    const rect = container.getBoundingClientRect();
-    const x = Math.max(0, Math.min(e.clientX - rect.left, container.offsetWidth));
-    const duration = audioEl.duration;
-    
-    let currentTime;
-    if (waveformZoom > 1 && waveformData) {
-      const totalWidth = waveformData.length;
-      const visibleStartTime = (waveformScrollOffset / totalWidth) * duration;
-      const visibleDuration = ((container.offsetWidth) / totalWidth) * duration;
-      currentTime = visibleStartTime + (x / container.offsetWidth) * visibleDuration;
-    } else {
-      currentTime = (x / container.offsetWidth) * duration;
-    }
-    
-    if (currentTime < dragStartTime) {
-      selectionStart = currentTime;
-      selectionEnd = dragStartTime;
-    } else {
-      selectionStart = dragStartTime;
-      selectionEnd = currentTime;
-    }
-    
-    updateSelectionDisplay();
-  });
-  
-  document.addEventListener("mouseup", () => {
-    if (isSelecting) {
-      isSelecting = false;
-      // If selection is too small, clear it
-      if (selectionEnd - selectionStart < 0.05) {
-        clearSelection();
-      }
-    }
-  });
-}
+// Selection drag is now handled by the unified Praat-style handler above
 
 // Update existing tab handlers
 if (tabWaveform) {
@@ -4378,125 +4521,174 @@ document.addEventListener("keydown", (e) => {
   }
   
   switch (e.key) {
-    case " ": // Space - Play/Pause
+    case " ": // Space — Play / Pause
       e.preventDefault();
-      if (audioEl.paused) {
-        audioEl.play();
+      if (audioEl.paused) audioEl.play();
+      else audioEl.pause();
+      break;
+
+    // ---- Praat-style: Tab to play selection or visible window ----
+    case "Tab":
+      e.preventDefault();
+      if (e.shiftKey) {
+        playVisibleWindow();
+      } else if (selectionStart !== null && selectionEnd !== null) {
+        playSelection();
       } else {
-        audioEl.pause();
+        playVisibleWindow();
       }
       break;
-      
+
     case "ArrowLeft":
       e.preventDefault();
-      if (e.shiftKey) {
-        audioEl.currentTime = Math.max(0, audioEl.currentTime - 10);
-      } else {
-        audioEl.currentTime = Math.max(0, audioEl.currentTime - 5);
-      }
+      audioEl.currentTime = Math.max(0, audioEl.currentTime - (e.shiftKey ? 10 : 5));
       break;
-      
+
     case "ArrowRight":
       e.preventDefault();
-      if (e.shiftKey) {
-        audioEl.currentTime = Math.min(audioEl.duration || 0, audioEl.currentTime + 10);
-      } else {
-        audioEl.currentTime = Math.min(audioEl.duration || 0, audioEl.currentTime + 5);
-      }
+      audioEl.currentTime = Math.min(audioEl.duration || 0, audioEl.currentTime + (e.shiftKey ? 10 : 5));
       break;
-      
+
     case "ArrowUp":
       e.preventDefault();
       navigateSegment(-1);
       break;
-      
+
     case "ArrowDown":
       e.preventDefault();
       navigateSegment(1);
       break;
-      
+
     case "Home":
       e.preventDefault();
       audioEl.currentTime = 0;
       break;
-      
+
     case "End":
       e.preventDefault();
       audioEl.currentTime = audioEl.duration || 0;
       break;
-      
+
     case "[":
       e.preventDefault();
       setPlaybackSpeed(Math.max(0.25, currentSpeed - 0.25));
       break;
-      
+
     case "]":
       e.preventDefault();
       setPlaybackSpeed(Math.min(3, currentSpeed + 0.25));
       break;
-      
+
     case "w":
     case "W":
       e.preventDefault();
       toggleWaveformPanel();
       break;
-      
+
     case "1":
       e.preventDefault();
       if (isWaveformVisible && tabWaveform) tabWaveform.click();
       break;
-      
+
     case "2":
       e.preventDefault();
       if (isWaveformVisible && tabSpectrogram) tabSpectrogram.click();
       break;
-      
+
     case "b":
     case "B":
       e.preventDefault();
       if (toggleWordsBtn) toggleWordsBtn.click();
       break;
-      
+
     case "l":
     case "L":
       e.preventDefault();
       toggleLoop();
       break;
-      
+
     case "p":
       if (!e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         playSelection();
       }
       break;
-      
+
+    // ---- Ctrl/Cmd+I: zoom to selection (Praat) ----
+    // ---- Plain I: IPA picker ----
     case "i":
     case "I":
-      e.preventDefault();
-      if (ipaPicker.classList.contains("hidden")) {
-        showIPAPicker();
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        zoomToSelection();
       } else {
-        hideIPAPicker();
+        e.preventDefault();
+        if (ipaPicker.classList.contains("hidden")) showIPAPicker();
+        else hideIPAPicker();
       }
       break;
-      
+
+    // ---- Ctrl/Cmd+A: select all visible (Praat) ----
+    case "a":
+    case "A":
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        if (isWaveformVisible && audioEl.duration) {
+          const cont = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
+          selectionStart = xToTime(0, cont);
+          selectionEnd = xToTime(cont.offsetWidth, cont);
+          updateSelectionDisplay();
+        }
+      }
+      break;
+
+    // ---- 0: zoom to all (fit) ----
+    case "0":
+      e.preventDefault();
+      zoomToAll();
+      break;
+
+    // ---- F: toggle formant overlay ----
+    case "f":
+    case "F":
+      if (!e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        showFormants = !showFormants;
+        const fb = document.getElementById("toggle-formants");
+        if (fb) fb.classList.toggle("active", showFormants);
+        if (currentWaveformView === "spectrogram") renderSpectrogramView();
+      }
+      break;
+
+    // ---- G: toggle intensity overlay ----
+    case "g":
+    case "G":
+      if (!e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        showIntensity = !showIntensity;
+        const gb = document.getElementById("toggle-intensity");
+        if (gb) gb.classList.toggle("active", showIntensity);
+        if (currentWaveformView === "spectrogram") renderSpectrogramView();
+      }
+      break;
+
     case "+":
     case "=":
       e.preventDefault();
       if (zoomInBtn) zoomInBtn.click();
       break;
-      
+
     case "-":
     case "_":
       e.preventDefault();
       if (zoomOutBtn) zoomOutBtn.click();
       break;
-      
+
     case "?":
       e.preventDefault();
       toggleShortcutsModal();
       break;
-      
+
     case "Escape":
       if (!shortcutsModal.classList.contains("hidden")) {
         e.preventDefault();
@@ -4532,6 +4724,94 @@ function updateFrequencyAxis() {
     mark.className = "freq-mark";
     mark.textContent = freq >= 1000 ? `${freq/1000}k` : freq;
     freqAxis.appendChild(mark);
+  });
+}
+
+// =============================================
+// SPECTROGRAM SETTINGS PANEL
+// =============================================
+
+const spectSettingsBtn = document.getElementById("spectrogram-settings-btn");
+const spectSettingsPanel = document.getElementById("spectrogram-settings-panel");
+
+if (spectSettingsBtn && spectSettingsPanel) {
+  spectSettingsBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    spectSettingsPanel.classList.toggle("hidden");
+  });
+  document.addEventListener("click", (e) => {
+    if (!spectSettingsPanel.contains(e.target) && e.target !== spectSettingsBtn) {
+      spectSettingsPanel.classList.add("hidden");
+    }
+  });
+}
+
+// Window length slider
+const spectWindowSlider = document.getElementById("spect-window");
+const spectWindowVal = document.getElementById("spect-win-val");
+if (spectWindowSlider) {
+  spectWindowSlider.addEventListener("input", () => {
+    spectWindowVal.textContent = spectWindowSlider.value;
+    spectrogramSettings.windowLength = parseInt(spectWindowSlider.value) / 1000;
+    invalidateSpectrogramCache();
+    if (currentWaveformView === "spectrogram") computeSpectrogram();
+  });
+}
+
+// Dynamic range slider
+const spectDRSlider = document.getElementById("spect-dynrange");
+const spectDRVal = document.getElementById("spect-dr-val");
+if (spectDRSlider) {
+  spectDRSlider.addEventListener("input", () => {
+    spectDRVal.textContent = spectDRSlider.value;
+    spectrogramSettings.dynamicRange = parseInt(spectDRSlider.value);
+    invalidateSpectrogramCache();
+    if (currentWaveformView === "spectrogram") computeSpectrogram();
+  });
+}
+
+// Max frequency slider
+const spectFreqSlider = document.getElementById("spect-maxfreq");
+const spectFreqVal = document.getElementById("spect-freq-val");
+if (spectFreqSlider) {
+  spectFreqSlider.addEventListener("input", () => {
+    const v = parseInt(spectFreqSlider.value);
+    spectFreqVal.textContent = v === 0 ? "auto" : (v >= 1000 ? `${v/1000}k` : `${v}`);
+    spectrogramSettings.maxFrequency = v;
+    if (v > 0) spectrogramMaxFreq = v;
+    else spectrogramMaxFreq = 0; // re-detect
+    invalidateSpectrogramCache();
+    if (currentWaveformView === "spectrogram") computeSpectrogram();
+  });
+}
+
+// Pre-emphasis checkbox
+const spectPreemph = document.getElementById("spect-preemph");
+if (spectPreemph) {
+  spectPreemph.addEventListener("change", () => {
+    spectrogramSettings.preEmphasis = spectPreemph.checked ? 6 : 0;
+    invalidateSpectrogramCache();
+    if (currentWaveformView === "spectrogram") computeSpectrogram();
+  });
+}
+
+// Formant toggle button
+const toggleFormantsBtn = document.getElementById("toggle-formants");
+if (toggleFormantsBtn) {
+  toggleFormantsBtn.addEventListener("click", () => {
+    showFormants = !showFormants;
+    toggleFormantsBtn.classList.toggle("active", showFormants);
+    if (currentWaveformView === "spectrogram") renderSpectrogramView();
+  });
+}
+
+// Intensity toggle button
+const toggleIntensityBtn = document.getElementById("toggle-intensity");
+if (toggleIntensityBtn) {
+  toggleIntensityBtn.addEventListener("click", () => {
+    showIntensity = !showIntensity;
+    toggleIntensityBtn.classList.toggle("active", showIntensity);
+    if (currentWaveformView === "spectrogram") renderSpectrogramView();
   });
 }
 

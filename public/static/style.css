@@ -2051,6 +2051,54 @@ body {
   margin: 0 4px;
 }
 
+/* Spectrogram settings popover */
+.spectrogram-settings-wrap {
+  position: relative;
+}
+
+.spectrogram-settings-panel {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  z-index: 200;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  padding: 10px 14px;
+  width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.spectrogram-settings-panel.hidden { display: none; }
+
+.spect-setting label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.68rem;
+  font-family: var(--font-sans);
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.spect-setting label span {
+  font-weight: 600;
+  color: var(--ink);
+  min-width: 28px;
+  text-align: right;
+}
+.spect-setting input[type="range"] {
+  width: 100%;
+  height: 4px;
+  accent-color: var(--accent);
+  margin-top: 2px;
+}
+.spect-setting input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
 /* Timestamp editor */
 .timestamp-editor {
   display: inline-flex;
