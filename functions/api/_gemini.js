@@ -83,7 +83,7 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
-function buildPrompt(language, speakerCount) {
+function buildPrompt(language, orthography, speakerCount) {
   let prompt = `
 Process the audio file and generate a detailed transcription.
 
@@ -101,7 +101,10 @@ Be precise with timestamps - each segment should have both a start and end time.
 `;
 
   if (language) {
-    prompt += `\nLanguage hint: ${language}.`;
+    prompt += `\nThe audio is in ${language}. Transcribe it in ${language}.`;
+  }
+  if (orthography) {
+    prompt += `\nWrite the transcription using ${orthography}. This is the preferred writing system — use it for all transcribed content.`;
   }
   if (speakerCount) {
     prompt += `\nExpected speaker count: ${speakerCount}.`;
@@ -115,6 +118,7 @@ async function transcribeWithGemini({
   audioBuffer,
   filename,
   language,
+  orthography,
   speakerCount,
   model = "gemini-3-flash-preview",
 }) {
@@ -124,7 +128,7 @@ async function transcribeWithGemini({
 
   const mimeType = getMimeType(filename);
   const base64Audio = arrayBufferToBase64(audioBuffer);
-  const prompt = buildPrompt(language, speakerCount);
+  const prompt = buildPrompt(language, orthography, speakerCount);
 
   const body = {
     contents: [

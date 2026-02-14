@@ -56,6 +56,7 @@ export async function onRequestPost({ request, env }) {
         }
 
         const language = form.get("language") || null;
+        const orthography = form.get("orthography") || null;
         const speakerCount = form.get("speaker_count") || null;
 
         controller.enqueue(encoder.encode(sseEvent("progress", { step: "transcribing", index: 1 })));
@@ -68,6 +69,7 @@ export async function onRequestPost({ request, env }) {
             audioBuffer,
             filename: file.name,
             language,
+            orthography,
             speakerCount,
           });
 

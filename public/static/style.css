@@ -1702,6 +1702,12 @@ body {
   background: var(--surface-raised);
   color: var(--ink);
 }
+.form-hint {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.72rem;
+  color: var(--ink-faint, #999);
+}
 
 .modal-footer {
   display: flex;

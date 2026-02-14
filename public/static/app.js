@@ -81,7 +81,8 @@ const uploadModal = document.getElementById("upload-modal");
 const modalClose = document.getElementById("modal-close");
 const modalCancel = document.getElementById("modal-cancel");
 const modalConfirm = document.getElementById("modal-confirm");
-const languageSelect = document.getElementById("language-select");
+const languageInput = document.getElementById("language-input");
+const orthographyInput = document.getElementById("orthography-input");
 const speakerCountSelect = document.getElementById("speaker-count");
 
 // Steps for pipeline (uploading, transcribing, processing, done)
@@ -341,7 +342,8 @@ function handleFileSelect(fileListInput, showModal = true) {
 
 function showUploadModal() {
   // Reset form values
-  languageSelect.value = "";
+  languageInput.value = "";
+  orthographyInput.value = "";
   speakerCountSelect.value = "";
   uploadModal.classList.remove("hidden");
 }
@@ -352,8 +354,11 @@ function hideUploadModal() {
 }
 
 function getUploadOptions() {
+  const lang = languageInput.value.trim();
+  const ortho = orthographyInput.value.trim();
   return {
-    language: languageSelect.value || null,
+    language: (lang && lang.toLowerCase() !== "default") ? lang : null,
+    orthography: (ortho && ortho.toLowerCase() !== "default") ? ortho : null,
     speakerCount: speakerCountSelect.value || null,
   };
 }
@@ -2082,6 +2087,9 @@ async function uploadFiles(files, options = {}) {
   // Add transcription options if provided
   if (options.language) {
     formData.append("language", options.language);
+  }
+  if (options.orthography) {
+    formData.append("orthography", options.orthography);
   }
   if (options.speakerCount) {
     formData.append("speaker_count", options.speakerCount);
