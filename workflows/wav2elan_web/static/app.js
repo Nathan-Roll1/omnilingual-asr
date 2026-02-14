@@ -2575,27 +2575,20 @@ function drawWaveform() {
   
   waveformCtx.clearRect(0, 0, canvasWidth, height + 24);
   
-  // Draw background gradient
-  const gradient = waveformCtx.createLinearGradient(0, 0, 0, height);
-  gradient.addColorStop(0, "#1a1d26");
-  gradient.addColorStop(1, "#1e2230");
-  waveformCtx.fillStyle = gradient;
+  // Draw white background (Praat style)
+  waveformCtx.fillStyle = "#ffffff";
   waveformCtx.fillRect(0, 0, canvasWidth, height);
   
   // Draw center line
-  waveformCtx.strokeStyle = "rgba(255, 255, 255, 0.1)";
+  waveformCtx.strokeStyle = "rgba(0, 0, 0, 0.08)";
   waveformCtx.lineWidth = 1;
   waveformCtx.beginPath();
   waveformCtx.moveTo(0, centerY);
   waveformCtx.lineTo(canvasWidth, centerY);
   waveformCtx.stroke();
   
-  // Draw waveform
-  const waveGradient = waveformCtx.createLinearGradient(0, 0, 0, height);
-  waveGradient.addColorStop(0, "#8c1515");
-  waveGradient.addColorStop(0.5, "#b31b1b");
-  waveGradient.addColorStop(1, "#8c1515");
-  waveformCtx.fillStyle = waveGradient;
+  // Draw waveform in black (Praat style)
+  waveformCtx.fillStyle = "#000000";
   
   // Draw visible portion of waveform
   const startIdx = Math.floor(waveformScrollOffset);
@@ -2615,14 +2608,14 @@ function drawWaveform() {
     const playheadPosition = (audioEl.currentTime / audioEl.duration) * totalWidth;
     const playedWidth = playheadPosition - waveformScrollOffset;
     if (playedWidth > 0) {
-      waveformCtx.fillStyle = "rgba(140, 21, 21, 0.3)";
+      waveformCtx.fillStyle = "rgba(140, 21, 21, 0.08)";
       waveformCtx.fillRect(0, 0, Math.min(playedWidth, canvasWidth), height);
     }
   }
   
   // Show zoom level indicator if zoomed
   if (waveformZoom > 1) {
-    waveformCtx.fillStyle = "rgba(255, 255, 255, 0.7)";
+    waveformCtx.fillStyle = "rgba(0, 0, 0, 0.5)";
     waveformCtx.font = "11px system-ui, sans-serif";
     waveformCtx.fillText(`${waveformZoom.toFixed(1)}x zoom`, 8, 16);
   }
@@ -2715,8 +2708,8 @@ async function computeSpectrogram() {
   const width = canvas.width; // Actual pixel width (dpr adjusted)
   const height = canvas.height;
   
-  // Clear canvas
-  spectrogramCtx.fillStyle = "#000";
+  // Clear canvas (white background)
+  spectrogramCtx.fillStyle = "#ffffff";
   spectrogramCtx.fillRect(0, 0, width, height);
 
   const channelData = audioBufferCache.getChannelData(0);
@@ -2790,21 +2783,9 @@ async function computeSpectrogram() {
       const intensity = Math.log10(magnitude * 100 + 1) * 60; // Scaling factor
       const normalized = Math.min(1, Math.max(0, intensity / 100));
       
-      // Heatmap colors
-      let r, g, b;
-      if (normalized < 0.2) {
-        r = 0; g = 0; b = Math.floor(normalized * 5 * 255);
-      } else if (normalized < 0.5) {
-        const t = (normalized - 0.2) / 0.3;
-        r = Math.floor(180 * t);
-        g = Math.floor(30 * t);
-        b = Math.floor(30 * t);
-      } else {
-        const t = (normalized - 0.5) / 0.5;
-        r = 180 + Math.floor(75 * t);
-        g = 30 + Math.floor(225 * t);
-        b = 30; // Yellowish
-      }
+      // Praat-style grayscale: white = silence, black = loud
+      const gray = Math.floor(255 * (1 - normalized));
+      const r = gray, g = gray, b = gray;
       
       const pixelIndex = (y * width + x) * 4;
       data[pixelIndex] = r;

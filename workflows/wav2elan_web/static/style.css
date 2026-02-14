@@ -1915,7 +1915,7 @@ body {
 .waveform-canvas-container {
   position: relative;
   height: 240px;
-  background: #1a1d26;
+  background: #ffffff;
   overflow: hidden;
 }
 
@@ -1965,16 +1965,16 @@ body {
 .waveform-segment {
   position: absolute;
   top: 0; bottom: 0;
-  background: rgba(255,255,255,0.03);
-  border-left: 1px solid rgba(255,255,255,0.15);
-  border-right: 1px solid rgba(255,255,255,0.15);
+  background: rgba(0,0,0,0.02);
+  border-left: 1px solid rgba(0,0,0,0.12);
+  border-right: 1px solid rgba(0,0,0,0.12);
   pointer-events: auto;
   cursor: pointer;
   transition: background 0.1s ease;
 }
-.waveform-segment:hover { background: rgba(255,255,255,0.08); border-color: var(--accent); }
-.waveform-segment:nth-child(odd) { background: rgba(140,21,21,0.06); }
-.waveform-segment:nth-child(odd):hover { background: rgba(140,21,21,0.12); }
+.waveform-segment:hover { background: rgba(0,0,0,0.06); border-color: var(--accent); }
+.waveform-segment:nth-child(odd) { background: rgba(140,21,21,0.04); }
+.waveform-segment:nth-child(odd):hover { background: rgba(140,21,21,0.08); }
 
 .waveform-segment-label {
   position: absolute;
@@ -1995,10 +1995,9 @@ body {
   position: absolute;
   top: 50%; left: 50%;
   transform: translate(-50%, -50%);
-  color: rgba(255,255,255,0.8);
+  color: rgba(0,0,0,0.6);
   font-size: 0.68rem;
   font-weight: 500;
-  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
   text-align: center;
   max-width: calc(100% - 12px);
   overflow: hidden;
@@ -2009,9 +2008,10 @@ body {
 }
 .waveform-segment:hover .waveform-segment-text {
   white-space: normal;
-  background: rgba(0,0,0,0.8);
+  background: rgba(255,255,255,0.9);
   padding: 3px 6px;
   border-radius: var(--radius-xs);
+  color: var(--ink);
 }
 
 .waveform-segment-handle {
@@ -2024,20 +2024,21 @@ body {
 }
 .waveform-segment-handle.left { left: -4px; }
 .waveform-segment-handle.right { right: -4px; }
-.waveform-segment-handle:hover { background: rgba(255,255,255,0.15); }
+.waveform-segment-handle:hover { background: rgba(0,0,0,0.1); }
 
 .waveform-time-ruler {
   position: absolute;
   bottom: 0; left: 0; right: 0;
   height: 24px;
-  background: rgba(0,0,0,0.6);
+  background: var(--bg-subtle);
+  border-top: 1px solid var(--border);
   z-index: 60;
 }
 
 .waveform-time-mark {
   position: absolute;
   bottom: 0;
-  color: rgba(255,255,255,0.5);
+  color: var(--ink-muted);
   font-family: var(--font-mono);
   font-size: 0.58rem;
   transform: translateX(-50%);
@@ -2149,20 +2150,22 @@ body {
 .waveform-word {
   position: absolute;
   top: 0; bottom: 0;
-  border-left: 1px dashed rgba(255,255,255,0.2);
-  border-right: 1px dashed rgba(255,255,255,0.2);
-  background: rgba(255,255,255,0.02);
+  border-left: 1px dashed rgba(0,0,0,0.15);
+  border-right: 1px dashed rgba(0,0,0,0.15);
+  background: transparent;
   cursor: pointer;
 }
-.waveform-word:hover { background: rgba(255,255,255,0.06); }
-.waveform-word.selected { background: rgba(140,21,21,0.15); border-color: var(--accent); }
+.waveform-word:hover { background: rgba(0,0,0,0.04); }
+.waveform-word.selected { background: rgba(140,21,21,0.1); border-color: var(--accent); }
 
 .waveform-word-label {
   position: absolute;
   bottom: 28px; left: 50%;
   transform: translateX(-50%);
-  background: rgba(0,0,0,0.8);
-  color: #fff;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
   font-size: 9px;
   font-family: var(--font-mono);
   padding: 2px 4px;
@@ -2195,8 +2198,10 @@ body {
 .waveform-cursor-info {
   position: absolute;
   top: 6px; right: 6px;
-  background: rgba(0,0,0,0.8);
-  color: rgba(255,255,255,0.8);
+  background: var(--surface);
+  color: var(--ink-secondary);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
   padding: 4px 8px;
   border-radius: var(--radius-xs);
   font-size: 10px;
@@ -2211,14 +2216,15 @@ body {
   position: absolute;
   left: 0; top: 40px; bottom: 24px;
   width: 36px;
-  background: rgba(0,0,0,0.6);
+  background: var(--bg-subtle);
+  border-right: 1px solid var(--border);
   display: none;
   flex-direction: column;
   justify-content: space-between;
   padding: 4px 2px;
   font-size: 8px;
   font-family: var(--font-mono);
-  color: rgba(255,255,255,0.5);
+  color: var(--ink-muted);
   z-index: 50;
   pointer-events: none;
 }
