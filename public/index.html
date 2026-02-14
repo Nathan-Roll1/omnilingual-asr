@@ -53,27 +53,15 @@
           </div>
         </div>
 
-        <div class="sidebar-session">
+        <div class="sidebar-session" id="sidebar-user">
           <div class="session-header">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-              <path d="M7 11V7a5 5 0 0110 0v4"/>
+              <circle cx="12" cy="8" r="4"/>
+              <path d="M20 21a8 8 0 10-16 0"/>
             </svg>
-            <span class="session-label">Your workspace key</span>
+            <span class="session-label" id="user-email-display"></span>
           </div>
-          <div class="session-key-row">
-            <code class="session-key-value" id="session-key-value"></code>
-            <button class="session-copy-btn" id="session-copy">Copy</button>
-          </div>
-          <p class="session-hint">Save this key to access your transcripts on another device.</p>
-          <button class="session-restore-btn" id="session-restore">Restore a previous workspace</button>
-          <div class="session-restore-box hidden" id="session-restore-box">
-            <input type="text" class="session-restore-input" id="session-restore-input" placeholder="Paste your key here" spellcheck="false" autocomplete="off" />
-            <div class="session-restore-actions">
-              <button class="btn-primary session-btn-sm" id="session-restore-confirm">Restore</button>
-              <button class="btn-secondary session-btn-sm" id="session-restore-cancel">Cancel</button>
-            </div>
-          </div>
+          <button class="session-restore-btn" id="logout-btn">Sign out</button>
         </div>
       </aside>
 
@@ -450,28 +438,54 @@
       </div>
     </div>
 
-    <!-- Password Modal -->
-    <div class="modal-overlay" id="password-modal">
-      <div class="modal">
-        <div class="modal-header">
-          <h3>Authentication Required</h3>
-          <button class="modal-close" id="password-close">&times;</button>
-        </div>
-        <div class="modal-body">
+    <!-- Auth Modal (Login / Register) -->
+    <div class="auth-overlay" id="auth-overlay">
+      <div class="auth-card">
+        <h2 class="auth-title" id="auth-title">Sign in</h2>
+        <p class="auth-subtitle" id="auth-subtitle">Sign in to access your transcripts</p>
+        <form id="auth-form" autocomplete="off">
           <div class="form-group">
-            <label for="password-input">Enter Password</label>
-            <input type="password" id="password-input" placeholder="Password" autocomplete="off" />
+            <label for="auth-email">Email</label>
+            <input type="email" id="auth-email" placeholder="you@example.com" required autocomplete="email" />
           </div>
-          <p id="password-error" class="password-error hidden">Incorrect password. Please try again.</p>
-        </div>
-        <div class="modal-footer">
-          <button class="btn-secondary" id="password-cancel">Cancel</button>
-          <button class="btn-primary" id="password-submit">Submit</button>
-        </div>
+          <div class="form-group">
+            <label for="auth-password">Password</label>
+            <input type="password" id="auth-password" placeholder="Min. 8 characters" required autocomplete="current-password" />
+          </div>
+          <div class="form-group hidden" id="auth-confirm-group">
+            <label for="auth-confirm">Confirm Password</label>
+            <input type="password" id="auth-confirm" placeholder="Re-enter password" autocomplete="new-password" />
+          </div>
+          <p class="auth-error hidden" id="auth-error"></p>
+          <button type="submit" class="btn-primary auth-submit" id="auth-submit">Sign in</button>
+        </form>
+        <p class="auth-switch">
+          <span id="auth-switch-text">Don't have an account?</span>
+          <button type="button" class="auth-switch-btn" id="auth-switch-btn">Create one</button>
+        </p>
       </div>
     </div>
 
     <!-- IPA Character Picker -->
+    <!-- Segment Context Menu (right-click) -->
+    <div class="ctx-menu hidden" id="segment-ctx-menu">
+      <div class="ctx-group">
+        <div class="ctx-label">Speaker</div>
+        <input type="text" class="ctx-input" id="ctx-speaker" placeholder="Speaker 1" spellcheck="false" />
+      </div>
+      <div class="ctx-group">
+        <div class="ctx-label">Emotion</div>
+        <div class="ctx-options" id="ctx-emotion-options">
+          <button class="ctx-option" data-value="neutral">neutral</button>
+          <button class="ctx-option" data-value="happy">happy</button>
+          <button class="ctx-option" data-value="sad">sad</button>
+          <button class="ctx-option" data-value="angry">angry</button>
+        </div>
+      </div>
+      <div class="ctx-divider"></div>
+      <button class="ctx-action" id="ctx-delete-segment">Delete segment</button>
+    </div>
+
     <div class="ipa-picker hidden" id="ipa-picker">
       <div class="ipa-picker-header">
         <span>IPA Characters</span>

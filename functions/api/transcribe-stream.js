@@ -1,23 +1,17 @@
 import { transcribeWithGemini, getMimeType } from "./_gemini.js";
-import { putHistory, storeAudio, getSessionKey } from "./_history.js";
+import { putHistory, storeAudio } from "./_history.js";
 
 function sseEvent(type, data) {
   return `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
-export async function onRequestPost({ request, env }) {
+export async function onRequestPost({ request, env, data }) {
   const encoder = new TextEncoder();
-  const sessionKey = getSessionKey(request);
+  const userId = data.userId;
 
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        if (!sessionKey) {
-          controller.enqueue(encoder.encode(sseEvent("error", { message: "Missing session key." })));
-          controller.close();
-          return;
-        }
-
         controller.enqueue(encoder.encode(sseEvent("progress", { step: "uploading", index: 0 })));
 
         const form = await request.formData();
@@ -73,7 +67,7 @@ export async function onRequestPost({ request, env }) {
         };
 
         if (env.DB) {
-          await putHistory(env.DB, entry, sessionKey);
+          await putHistory(env.DB, entry, userId);
         }
 
         controller.enqueue(encoder.encode(sseEvent("progress", { step: "done", index: 3 })));

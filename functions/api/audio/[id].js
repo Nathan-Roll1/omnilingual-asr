@@ -1,17 +1,12 @@
-import { getAudioForSession, getSessionKey } from "../_history.js";
+import { getAudioForUser } from "../_history.js";
 
-// GET /api/audio/:id — streams audio from R2, scoped to session
-export async function onRequestGet({ params, request, env }) {
+// GET /api/audio/:id — streams audio from R2, scoped to authenticated user
+export async function onRequestGet({ params, env, data }) {
   if (!env.DB || !env.AUDIO_BUCKET) {
     return new Response("Storage not configured", { status: 500 });
   }
 
-  const sessionKey = getSessionKey(request);
-  if (!sessionKey) {
-    return new Response("Unauthorized", { status: 401 });
-  }
-
-  const object = await getAudioForSession(env.DB, env.AUDIO_BUCKET, params.id, sessionKey);
+  const object = await getAudioForUser(env.DB, env.AUDIO_BUCKET, params.id, data.userId);
   if (!object) {
     return new Response("Audio not found", { status: 404 });
   }

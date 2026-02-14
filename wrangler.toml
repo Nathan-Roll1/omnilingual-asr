@@ -8,6 +8,10 @@ binding = "DB"
 database_name = "omnitranscribe-db"
 database_id = "bd21be5c-318b-462b-a899-49c645836993"
 
+# Secrets (set via Cloudflare Pages dashboard or `wrangler secret put`):
+#   GEMINI_API_KEY — Google Gemini API key for transcription
+#   JWT_SECRET     — random string for signing auth tokens (min 32 chars)
+
 # R2 bucket for audio file storage
 [[r2_buckets]]
 binding = "AUDIO_BUCKET"

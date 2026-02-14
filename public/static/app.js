@@ -1,36 +1,40 @@
 // =============================================
-// SESSION KEY — isolates each user's workspace
+// AUTH — JWT-based authentication
 // =============================================
-function generateSessionKey() {
-  // 12 chars, alphanumeric, easy to copy/paste
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
-  let key = "";
-  const arr = new Uint8Array(12);
-  crypto.getRandomValues(arr);
-  for (const b of arr) key += chars[b % chars.length];
-  return key;
-}
+let authToken = localStorage.getItem("omni_auth_token");
+let currentUser = null;
 
-let sessionKey = localStorage.getItem("omni_session_key");
-if (!sessionKey) {
-  sessionKey = generateSessionKey();
-  localStorage.setItem("omni_session_key", sessionKey);
-}
-
-// Attach session key to all fetch requests
+// Attach JWT to all API fetch requests
 const _origFetch = window.fetch;
 window.fetch = function (url, opts = {}) {
-  // Only add header for our own API calls
-  if (typeof url === "string" && url.startsWith("/api/")) {
+  if (typeof url === "string" && url.startsWith("/api/") && authToken) {
     opts.headers = opts.headers || {};
     if (opts.headers instanceof Headers) {
-      opts.headers.set("x-session-key", sessionKey);
+      opts.headers.set("Authorization", `Bearer ${authToken}`);
     } else {
-      opts.headers["x-session-key"] = sessionKey;
+      opts.headers["Authorization"] = `Bearer ${authToken}`;
     }
   }
   return _origFetch.call(this, url, opts);
 };
+
+function setAuth(token, user) {
+  authToken = token;
+  currentUser = user;
+  localStorage.setItem("omni_auth_token", token);
+  const emailEl = document.getElementById("user-email-display");
+  if (emailEl) emailEl.textContent = user.email;
+}
+
+function clearAuth() {
+  authToken = null;
+  currentUser = null;
+  localStorage.removeItem("omni_auth_token");
+}
+
+function isLoggedIn() {
+  return !!authToken;
+}
 
 // Elements
 const uploadZone = document.getElementById("upload-zone");
@@ -111,68 +115,116 @@ let uploadPlaceholders = [];
 // Maps transcript ID -> Blob URL
 const audioBlobCache = new Map();
 
-// Password protection
-const PASSWORD = "sesquip";
-let isAuthenticated = sessionStorage.getItem("authenticated") === "true";
+// =============================================
+// AUTH UI — Login / Register overlay
+// =============================================
+const authOverlay = document.getElementById("auth-overlay");
+const authForm = document.getElementById("auth-form");
+const authTitle = document.getElementById("auth-title");
+const authSubtitle = document.getElementById("auth-subtitle");
+const authEmail = document.getElementById("auth-email");
+const authPassword = document.getElementById("auth-password");
+const authConfirm = document.getElementById("auth-confirm");
+const authConfirmGroup = document.getElementById("auth-confirm-group");
+const authError = document.getElementById("auth-error");
+const authSubmit = document.getElementById("auth-submit");
+const authSwitchText = document.getElementById("auth-switch-text");
+const authSwitchBtn = document.getElementById("auth-switch-btn");
+const logoutBtn = document.getElementById("logout-btn");
 
-// Password modal elements
-const passwordModal = document.getElementById("password-modal");
-const passwordInput = document.getElementById("password-input");
-const passwordSubmit = document.getElementById("password-submit");
-const passwordCancel = document.getElementById("password-cancel");
-const passwordClose = document.getElementById("password-close");
-const passwordError = document.getElementById("password-error");
+let authMode = "login"; // "login" or "register"
 
-let pendingAuthCallback = null;
-
-function showPasswordModal(callback) {
-  pendingAuthCallback = callback;
-  passwordModal.classList.add("visible");
-  passwordInput.value = "";
-  passwordError.classList.add("hidden");
-  passwordInput.focus();
+function showAuth() {
+  if (authOverlay) authOverlay.classList.add("visible");
+  if (authEmail) authEmail.focus();
 }
 
-function hidePasswordModal() {
-  passwordModal.classList.remove("visible");
-  pendingAuthCallback = null;
+function hideAuth() {
+  if (authOverlay) authOverlay.classList.remove("visible");
 }
 
-function validatePassword() {
-  if (passwordInput.value === PASSWORD) {
-    isAuthenticated = true;
-    sessionStorage.setItem("authenticated", "true");
-    // Save callback before hiding modal (which clears it)
-    const callback = pendingAuthCallback;
-    hidePasswordModal();
-    if (callback) {
-      callback();
-    }
+function setAuthMode(mode) {
+  authMode = mode;
+  if (mode === "register") {
+    if (authTitle) authTitle.textContent = "Create account";
+    if (authSubtitle) authSubtitle.textContent = "Sign up to start transcribing";
+    if (authConfirmGroup) authConfirmGroup.classList.remove("hidden");
+    if (authSubmit) authSubmit.textContent = "Create account";
+    if (authSwitchText) authSwitchText.textContent = "Already have an account?";
+    if (authSwitchBtn) authSwitchBtn.textContent = "Sign in";
   } else {
-    passwordError.classList.remove("hidden");
-    passwordInput.value = "";
-    passwordInput.focus();
+    if (authTitle) authTitle.textContent = "Sign in";
+    if (authSubtitle) authSubtitle.textContent = "Sign in to access your transcripts";
+    if (authConfirmGroup) authConfirmGroup.classList.add("hidden");
+    if (authSubmit) authSubmit.textContent = "Sign in";
+    if (authSwitchText) authSwitchText.textContent = "Don't have an account?";
+    if (authSwitchBtn) authSwitchBtn.textContent = "Create one";
   }
+  if (authError) authError.classList.add("hidden");
 }
 
-if (passwordSubmit) {
-  passwordSubmit.addEventListener("click", validatePassword);
+if (authSwitchBtn) {
+  authSwitchBtn.addEventListener("click", () => {
+    setAuthMode(authMode === "login" ? "register" : "login");
+  });
 }
 
-if (passwordCancel) {
-  passwordCancel.addEventListener("click", hidePasswordModal);
-}
+if (authForm) {
+  authForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (authError) authError.classList.add("hidden");
+    if (authSubmit) { authSubmit.disabled = true; authSubmit.textContent = "Please wait…"; }
 
-if (passwordClose) {
-  passwordClose.addEventListener("click", hidePasswordModal);
-}
+    const email = (authEmail?.value || "").trim();
+    const password = authPassword?.value || "";
 
-if (passwordInput) {
-  passwordInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      validatePassword();
+    if (authMode === "register") {
+      const confirm = authConfirm?.value || "";
+      if (password !== confirm) {
+        if (authError) { authError.textContent = "Passwords do not match."; authError.classList.remove("hidden"); }
+        setAuthMode("register");
+        if (authSubmit) authSubmit.disabled = false;
+        return;
+      }
     }
+
+    try {
+      const endpoint = authMode === "register" ? "/api/auth/register" : "/api/auth/login";
+      const res = await _origFetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Authentication failed.");
+      }
+
+      setAuth(data.token, data.user);
+      hideAuth();
+      fetchHistory();
+    } catch (err) {
+      if (authError) {
+        authError.textContent = err.message;
+        authError.classList.remove("hidden");
+      }
+    } finally {
+      setAuthMode(authMode); // Reset button text
+      if (authSubmit) authSubmit.disabled = false;
+    }
+  });
+}
+
+if (logoutBtn) {
+  logoutBtn.addEventListener("click", () => {
+    clearAuth();
+    historyCache.clear();
+    historyItems = [];
+    activeId = null;
+    activeData = null;
+    renderHistoryList();
+    showAuth();
   });
 }
 
@@ -317,16 +369,9 @@ function handleFileSelect(fileListInput, showModal = true) {
     fileList.appendChild(chip);
   }
 
-  // Require password authentication
-  if (!isAuthenticated) {
-    showPasswordModal(() => {
-      if (showModal) {
-        pendingFiles = files;
-        showUploadModal();
-      } else {
-        uploadFiles(files);
-      }
-    });
+  // Require login
+  if (!isLoggedIn()) {
+    showAuth();
     return;
   }
 
@@ -852,6 +897,8 @@ function renderFlowTranscript(data) {
       chunk.dataset.word = "0"; // flow chunks are whole segments
       openInlineEditor(chunk);
     });
+
+    chunk.addEventListener("contextmenu", (e) => showCtxMenu(e, segIdx));
     
     flowContainer.appendChild(chunk);
     
@@ -888,6 +935,8 @@ function renderBoxTranscript(data) {
     // Apply subtle highlight based on mode
     container.style.borderLeftColor = getHighlightColor(segment, segIdx, speakerMap).replace("0.15", "0.6").replace("0.2", "0.6").replace("0.18", "0.6");
     container.style.borderLeftWidth = "4px";
+
+    container.addEventListener("contextmenu", (e) => showCtxMenu(e, segIdx));
 
     const meta = document.createElement("div");
     meta.className = "segment-meta";
@@ -1006,6 +1055,99 @@ function renderBoxTranscript(data) {
     transcriptEl.appendChild(container);
   });
 }
+
+// =============================================
+// SEGMENT CONTEXT MENU (right-click)
+// =============================================
+const ctxMenu = document.getElementById("segment-ctx-menu");
+const ctxSpeaker = document.getElementById("ctx-speaker");
+const ctxEmotionOptions = document.getElementById("ctx-emotion-options");
+const ctxDeleteSegment = document.getElementById("ctx-delete-segment");
+let ctxSegIdx = null;
+
+function showCtxMenu(e, segIdx) {
+  e.preventDefault();
+  if (!activeData?.segments) return;
+  ctxSegIdx = segIdx;
+  const seg = activeData.segments[segIdx];
+  if (!seg) return;
+
+  // Fill current values
+  ctxSpeaker.value = seg.speaker || "";
+  ctxEmotionOptions.querySelectorAll(".ctx-option").forEach(btn => {
+    btn.classList.toggle("selected", btn.dataset.value === seg.emotion);
+  });
+
+  // Position near cursor, clamped to viewport
+  const x = Math.min(e.clientX, window.innerWidth - 220);
+  const y = Math.min(e.clientY, window.innerHeight - 240);
+  ctxMenu.style.left = `${x}px`;
+  ctxMenu.style.top = `${y}px`;
+  ctxMenu.classList.remove("hidden");
+}
+
+function hideCtxMenu() {
+  ctxMenu.classList.add("hidden");
+  ctxSegIdx = null;
+}
+
+function applyCtxChange(field, value) {
+  if (ctxSegIdx == null || !activeData?.segments) return;
+  const seg = activeData.segments[ctxSegIdx];
+  if (!seg) return;
+  seg[field] = value;
+  renderTranscript(activeData);
+  saveActiveData();
+}
+
+// Speaker input — apply on Enter or blur
+if (ctxSpeaker) {
+  ctxSpeaker.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      applyCtxChange("speaker", ctxSpeaker.value.trim() || "Speaker 1");
+      hideCtxMenu();
+    }
+    if (e.key === "Escape") hideCtxMenu();
+    e.stopPropagation();
+  });
+  ctxSpeaker.addEventListener("blur", () => {
+    if (ctxSegIdx != null) {
+      applyCtxChange("speaker", ctxSpeaker.value.trim() || "Speaker 1");
+    }
+  });
+}
+
+// Emotion buttons
+if (ctxEmotionOptions) {
+  ctxEmotionOptions.addEventListener("click", (e) => {
+    const btn = e.target.closest(".ctx-option");
+    if (!btn) return;
+    applyCtxChange("emotion", btn.dataset.value);
+    hideCtxMenu();
+  });
+}
+
+// Delete segment
+if (ctxDeleteSegment) {
+  ctxDeleteSegment.addEventListener("click", () => {
+    if (ctxSegIdx == null || !activeData?.segments) return;
+    activeData.segments.splice(ctxSegIdx, 1);
+    renderTranscript(activeData);
+    saveActiveData();
+    hideCtxMenu();
+  });
+}
+
+// Close on click outside or Escape
+document.addEventListener("click", (e) => {
+  if (ctxMenu && !ctxMenu.contains(e.target)) hideCtxMenu();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && ctxMenu && !ctxMenu.classList.contains("hidden")) {
+    hideCtxMenu();
+  }
+});
 
 function renderTranscript(data) {
   activeData = data;
@@ -1609,7 +1751,9 @@ function setActiveHistory(id) {
 }
 
 async function fetchHistory() {
+  if (!isLoggedIn()) return;
   const res = await fetch("/api/history");
+  if (res.status === 401) { clearAuth(); showAuth(); return; }
   let items = await res.json();
   
   // Add permanent gettysburg example at the beginning
@@ -1815,8 +1959,7 @@ async function activateTranscript(data) {
     audioEl.src = activeAudioUrl;
     playerBar.classList.add("visible");
     
-    // Reset audio source connection when switching tracks
-    audioSource = null;
+    // Note: audioSource (MediaElementSourceNode) persists across src changes — do NOT null it
   } else {
     // No audio available - hide player and waveform
     audioEl.src = "";
@@ -1845,6 +1988,22 @@ async function updateHistory(id, payload) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+}
+
+// Save the active transcript to the server (debounced save after edits)
+let _saveTimer = null;
+function saveActiveData() {
+  if (!activeData || !activeId || activeId === "codeswitching-demo") return;
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(() => {
+    updateHistory(activeId, {
+      segments: activeData.segments,
+      summary: activeData.summary,
+      detected_languages: activeData.detected_languages,
+    });
+    // Also update cache
+    historyCache.set(activeId, activeData);
+  }, 500);
 }
 
 async function deleteHistory(id) {
@@ -2252,98 +2411,33 @@ if (citeCopy && citeText) {
 }
 
 // =============================================
-// SESSION KEY UI
+// AUTH BOOTSTRAP — check token on page load
 // =============================================
-const sessionKeyEl = document.getElementById("session-key-value");
-const sessionCopyBtn = document.getElementById("session-copy");
-const sessionRestoreBtn = document.getElementById("session-restore");
-const sessionRestoreInput = document.getElementById("session-restore-input");
-const sessionRestoreBox = document.getElementById("session-restore-box");
-const sessionRestoreConfirm = document.getElementById("session-restore-confirm");
-const sessionRestoreCancel = document.getElementById("session-restore-cancel");
+(async function initAuth() {
+  if (!authToken) {
+    showAuth();
+    return;
+  }
 
-if (sessionKeyEl) {
-  sessionKeyEl.textContent = sessionKey;
-}
-
-if (sessionCopyBtn) {
-  sessionCopyBtn.addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText(sessionKey);
-      sessionCopyBtn.textContent = "Copied!";
-      sessionCopyBtn.classList.add("copied");
-      setTimeout(() => {
-        sessionCopyBtn.textContent = "Copy";
-        sessionCopyBtn.classList.remove("copied");
-      }, 2000);
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = sessionKey;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-      sessionCopyBtn.textContent = "Copied!";
-      sessionCopyBtn.classList.add("copied");
-      setTimeout(() => {
-        sessionCopyBtn.textContent = "Copy";
-        sessionCopyBtn.classList.remove("copied");
-      }, 2000);
-    }
-  });
-}
-
-if (sessionRestoreBtn && sessionRestoreBox) {
-  sessionRestoreBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    sessionRestoreBox.classList.toggle("hidden");
-    if (!sessionRestoreBox.classList.contains("hidden") && sessionRestoreInput) {
-      sessionRestoreInput.value = "";
-      sessionRestoreInput.focus();
-      // No need to scroll — session section is pinned to sidebar bottom
-    }
-  });
-}
-
-if (sessionRestoreConfirm && sessionRestoreInput) {
-  sessionRestoreConfirm.addEventListener("click", (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-    const newKey = sessionRestoreInput.value.trim();
-    if (newKey && newKey.length >= 4) {
-      sessionRestoreConfirm.textContent = "Restoring…";
-      sessionRestoreConfirm.disabled = true;
-      localStorage.setItem("omni_session_key", newKey);
-      sessionKey = newKey;
-      if (sessionKeyEl) sessionKeyEl.textContent = newKey;
-      window.location.reload();
+  // Validate token by calling /api/auth/me
+  try {
+    const res = await fetch("/api/auth/me");
+    if (res.ok) {
+      const data = await res.json();
+      currentUser = data.user;
+      const emailEl = document.getElementById("user-email-display");
+      if (emailEl) emailEl.textContent = currentUser.email;
+      fetchHistory();
     } else {
-      sessionRestoreInput.style.borderColor = "#b91c1c";
-      sessionRestoreInput.placeholder = "Key must be at least 4 characters";
-      setTimeout(() => {
-        sessionRestoreInput.style.borderColor = "";
-        sessionRestoreInput.placeholder = "Paste your key here";
-      }, 2000);
+      // Token expired or invalid
+      clearAuth();
+      showAuth();
     }
-  });
-
-  sessionRestoreInput.addEventListener("keydown", (e) => {
-    e.stopPropagation();
-    if (e.key === "Enter") sessionRestoreConfirm.click();
-    if (e.key === "Escape") {
-      sessionRestoreBox.classList.add("hidden");
-    }
-  });
-}
-
-if (sessionRestoreCancel && sessionRestoreBox) {
-  sessionRestoreCancel.addEventListener("click", (e) => {
-    e.stopPropagation();
-    sessionRestoreBox.classList.add("hidden");
-  });
-}
-
-fetchHistory();
+  } catch {
+    clearAuth();
+    showAuth();
+  }
+})();
 
 // =============================================
 // WAVEFORM/SPECTROGRAM VISUALIZATION

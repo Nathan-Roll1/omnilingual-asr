@@ -1,15 +1,15 @@
 // D1 + R2 backed history store for OmniTranscribe
-// All queries are scoped by session_key for user isolation
+// All queries are scoped by user_id for secure user isolation
 
 /**
- * List transcripts for a session (lightweight — no segments)
+ * List transcripts for a user (lightweight — no segments)
  */
-async function listHistory(db, sessionKey) {
+async function listHistory(db, userId) {
   const { results } = await db
     .prepare(
-      "SELECT id, file_name, created_at, summary, detected_languages, audio_key FROM transcripts WHERE session_key = ? ORDER BY created_at DESC"
+      "SELECT id, file_name, created_at, summary, detected_languages, audio_key FROM transcripts WHERE user_id = ? ORDER BY created_at DESC"
     )
-    .bind(sessionKey)
+    .bind(userId)
     .all();
 
   return results.map((row) => ({
@@ -25,14 +25,14 @@ async function listHistory(db, sessionKey) {
 }
 
 /**
- * Get a full transcript by ID, scoped to session
+ * Get a full transcript by ID, scoped to user
  */
-async function getHistory(db, id, sessionKey) {
+async function getHistory(db, id, userId) {
   const row = await db
     .prepare(
-      "SELECT id, file_name, created_at, summary, detected_languages, audio_key FROM transcripts WHERE id = ? AND session_key = ?"
+      "SELECT id, file_name, created_at, summary, detected_languages, audio_key FROM transcripts WHERE id = ? AND user_id = ?"
     )
-    .bind(id, sessionKey)
+    .bind(id, userId)
     .first();
 
   if (!row) return null;
@@ -72,12 +72,12 @@ async function getHistory(db, id, sessionKey) {
 }
 
 /**
- * Insert a full transcript with session_key
+ * Insert a full transcript scoped to user
  */
-async function putHistory(db, item, sessionKey) {
+async function putHistory(db, item, userId) {
   await db
     .prepare(
-      "INSERT OR REPLACE INTO transcripts (id, file_name, created_at, summary, detected_languages, audio_key, session_key) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      "INSERT OR REPLACE INTO transcripts (id, file_name, created_at, summary, detected_languages, audio_key, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(
       item.id,
@@ -86,7 +86,7 @@ async function putHistory(db, item, sessionKey) {
       item.summary || null,
       item.detected_languages ? JSON.stringify(item.detected_languages) : null,
       item.audio_key || null,
-      sessionKey
+      userId
     )
     .run();
 
@@ -121,11 +121,11 @@ async function putHistory(db, item, sessionKey) {
 }
 
 /**
- * Update a transcript, scoped to session
+ * Update a transcript, scoped to user
  */
-async function updateHistory(db, id, patch, sessionKey) {
+async function updateHistory(db, id, patch, userId) {
   // Verify ownership
-  const existing = await getHistory(db, id, sessionKey);
+  const existing = await getHistory(db, id, userId);
   if (!existing) return null;
 
   const updates = [];
@@ -145,10 +145,10 @@ async function updateHistory(db, id, patch, sessionKey) {
   }
 
   if (updates.length > 0) {
-    binds.push(id, sessionKey);
+    binds.push(id, userId);
     await db
       .prepare(
-        `UPDATE transcripts SET ${updates.join(", ")} WHERE id = ? AND session_key = ?`
+        `UPDATE transcripts SET ${updates.join(", ")} WHERE id = ? AND user_id = ?`
       )
       .bind(...binds)
       .run();
@@ -186,23 +186,23 @@ async function updateHistory(db, id, patch, sessionKey) {
     }
   }
 
-  return await getHistory(db, id, sessionKey);
+  return await getHistory(db, id, userId);
 }
 
 /**
- * Delete a transcript, scoped to session
+ * Delete a transcript, scoped to user
  */
-async function deleteHistory(db, bucket, id, sessionKey) {
+async function deleteHistory(db, bucket, id, userId) {
   const row = await db
-    .prepare("SELECT audio_key FROM transcripts WHERE id = ? AND session_key = ?")
-    .bind(id, sessionKey)
+    .prepare("SELECT audio_key FROM transcripts WHERE id = ? AND user_id = ?")
+    .bind(id, userId)
     .first();
 
   if (!row) return false;
 
   const { meta } = await db
-    .prepare("DELETE FROM transcripts WHERE id = ? AND session_key = ?")
-    .bind(id, sessionKey)
+    .prepare("DELETE FROM transcripts WHERE id = ? AND user_id = ?")
+    .bind(id, userId)
     .run();
 
   if (row.audio_key && bucket) {
@@ -230,12 +230,12 @@ async function storeAudio(bucket, id, filename, arrayBuffer, mimeType) {
 }
 
 /**
- * Retrieve audio from R2 (verifies session ownership first)
+ * Retrieve audio from R2 (verifies user ownership first)
  */
-async function getAudioForSession(db, bucket, transcriptId, sessionKey) {
+async function getAudioForUser(db, bucket, transcriptId, userId) {
   const row = await db
-    .prepare("SELECT audio_key FROM transcripts WHERE id = ? AND session_key = ?")
-    .bind(transcriptId, sessionKey)
+    .prepare("SELECT audio_key FROM transcripts WHERE id = ? AND user_id = ?")
+    .bind(transcriptId, userId)
     .first();
 
   if (!row || !row.audio_key) return null;
@@ -254,13 +254,6 @@ async function logEdit(db, transcriptId, segmentOrder, field, oldValue, newValue
     .run();
 }
 
-/**
- * Helper: extract session key from request header
- */
-function getSessionKey(request) {
-  return request.headers.get("x-session-key") || null;
-}
-
 export {
   listHistory,
   getHistory,
@@ -268,7 +261,6 @@ export {
   updateHistory,
   deleteHistory,
   storeAudio,
-  getAudioForSession,
+  getAudioForUser,
   logEdit,
-  getSessionKey,
 };
