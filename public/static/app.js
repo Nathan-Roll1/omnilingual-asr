@@ -3118,7 +3118,7 @@ async function ensureFormantCache() {
         }
       }
       peaks.sort((a, b) => b.mag - a.mag);
-      formantArr[col] = peaks.slice(0, 5).map(p => p.freq).sort((a, b) => a - b);
+      formantArr[col] = peaks.slice(0, 4).map(p => p.freq).sort((a, b) => a - b);
     }
     if (cE < cache.numCols) await new Promise(r => setTimeout(r, 0));
   }
@@ -3182,22 +3182,26 @@ function renderSpectrogramView() {
     0, 0, width, drawH
   );
 
-  // Formant overlay (mel-scaled y positions)
+  // Formant overlay F1–F4 (colorblind-safe Okabe-Ito palette, mel-aligned)
   if (showFormants && cache.formants) {
-    const colors = ["#ff0000", "#ff6600", "#00bb00", "#0066ff", "#aa00ff"];
+    // Okabe-Ito: distinguishable for protanopia, deuteranopia & tritanopia
+    const FORMANT_COLORS = ["#E69F00", "#56B4E9", "#009E73", "#CC79A7"]; // F1 F2 F3 F4
     const dotR = 1.5 * dpr;
     const colRange = endCol - startCol || 1;
     const step = Math.max(1, Math.floor(colRange / (width / dpr)));
-    for (let f = 0; f < 5; f++) {
-      spectrogramCtx.fillStyle = colors[f];
+    const melH = cache.melRows || cache.usableBins;
+    for (let f = 0; f < 4; f++) {
+      spectrogramCtx.fillStyle = FORMANT_COLORS[f];
       for (let col = startCol; col < endCol; col += step) {
         const fm = cache.formants[col];
         if (!fm || fm[f] === undefined) continue;
         const freq = fm[f];
         if (freq < 100 || freq > cache.maxFreqHz) continue;
         const x = ((col - startCol) / colRange) * width;
+        // Exact mel-row mapping — matches spectrogram pixel grid
         const melNorm = hzToMelNorm(freq, cache.maxFreqHz);
-        const y = (1 - melNorm) * drawH;
+        const row = (cache.melRows - 1) * (1 - melNorm);
+        const y = (row / melH) * drawH;
         spectrogramCtx.fillRect(x - dotR, y - dotR, dotR * 2, dotR * 2);
       }
     }
