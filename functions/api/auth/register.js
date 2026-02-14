@@ -1,28 +1,53 @@
 import { hashPassword, createJWT, getJwtSecret, ensureSchema } from "../_auth.js";
 
+const JSON_HEADERS = { "Content-Type": "application/json" };
+
+function jsonResp(obj, status = 200) {
+  return new Response(JSON.stringify(obj), { status, headers: JSON_HEADERS });
+}
+
+// GET — diagnostic ping (handy for quick checks from the browser address bar)
+export async function onRequestGet({ env }) {
+  const hasDB = !!env.DB;
+  const hasKey = !!getJwtSecret(env);
+  return jsonResp({
+    ok: hasDB && hasKey,
+    db: hasDB,
+    signingKey: hasKey,
+    ts: new Date().toISOString(),
+  });
+}
+
+// POST — create account
 export async function onRequestPost({ request, env }) {
   try {
     const jwtSecret = getJwtSecret(env);
     if (!env.DB || !jwtSecret) {
-      return new Response(
-        JSON.stringify({
-          error: "Server misconfigured — DB or signing key unavailable.",
-        }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
-      );
+      return jsonResp({
+        error: "Server misconfigured.",
+        detail: { db: !!env.DB, signingKey: !!jwtSecret },
+      }, 500);
     }
 
     // Auto-create users table if it doesn't exist yet
     await ensureSchema(env.DB);
 
+    // Read body as text first, then parse — avoids silent stream-consumed issues
+    let rawBody;
+    try {
+      rawBody = await request.text();
+    } catch (e) {
+      return jsonResp({ error: "Could not read request body.", detail: e.message }, 400);
+    }
+
     let body;
     try {
-      body = await request.json();
+      body = JSON.parse(rawBody);
     } catch {
-      return new Response(JSON.stringify({ error: "Invalid JSON body." }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
+      return jsonResp({
+        error: "Invalid JSON body.",
+        detail: { received: rawBody.slice(0, 200), length: rawBody.length },
+      }, 400);
     }
 
     const email = (body.email || "").trim().toLowerCase();
@@ -30,18 +55,18 @@ export async function onRequestPost({ request, env }) {
 
     // Validate email
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return new Response(
-        JSON.stringify({ error: "Valid email is required." }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
+      return jsonResp({
+        error: "Valid email is required.",
+        detail: { receivedEmail: email || "(empty)" },
+      }, 400);
     }
 
     // Validate password
     if (password.length < 8) {
-      return new Response(
-        JSON.stringify({ error: "Password must be at least 8 characters." }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
+      return jsonResp({
+        error: "Password must be at least 8 characters.",
+        detail: { receivedLength: password.length },
+      }, 400);
     }
 
     // Check if email already exists
@@ -52,9 +77,9 @@ export async function onRequestPost({ request, env }) {
       .first();
 
     if (existing) {
-      return new Response(
-        JSON.stringify({ error: "An account with this email already exists." }),
-        { status: 409, headers: { "Content-Type": "application/json" } }
+      return jsonResp(
+        { error: "An account with this email already exists." },
+        409
       );
     }
 
@@ -71,21 +96,15 @@ export async function onRequestPost({ request, env }) {
     // Issue JWT
     const token = await createJWT({ sub: userId, email }, jwtSecret);
 
-    return new Response(
-      JSON.stringify({
-        token,
-        user: { id: userId, email },
-      }),
-      {
-        status: 201,
-        headers: { "Content-Type": "application/json" },
-      }
+    return jsonResp(
+      { token, user: { id: userId, email } },
+      201
     );
   } catch (err) {
     console.error("Register error:", err);
-    return new Response(
-      JSON.stringify({ error: err.message || "Registration failed." }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
+    return jsonResp(
+      { error: err.message || "Registration failed.", stack: String(err.stack || "").slice(0, 300) },
+      500
     );
   }
 }

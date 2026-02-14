@@ -169,51 +169,75 @@ if (authSwitchBtn) {
   });
 }
 
+function showAuthError(msg) {
+  console.error("[auth] error:", msg);
+  if (authError) {
+    authError.textContent = msg;
+    authError.classList.remove("hidden");
+  }
+}
+
 if (authForm) {
   authForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (authError) authError.classList.add("hidden");
-    if (authSubmit) { authSubmit.disabled = true; authSubmit.textContent = "Please wait…"; }
 
     const email = (authEmail?.value || "").trim();
     const password = authPassword?.value || "";
 
+    // ── Client-side validation (fail fast, no round-trip) ──
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      showAuthError("Please enter a valid email address.");
+      return;
+    }
+    if (password.length < 8) {
+      showAuthError("Password must be at least 8 characters.");
+      return;
+    }
     if (authMode === "register") {
       const confirm = authConfirm?.value || "";
       if (password !== confirm) {
-        if (authError) { authError.textContent = "Passwords do not match."; authError.classList.remove("hidden"); }
-        if (authSubmit) { authSubmit.disabled = false; authSubmit.textContent = "Create account"; }
+        showAuthError("Passwords do not match.");
         return;
       }
     }
+
+    // ── Submit ──
+    if (authSubmit) { authSubmit.disabled = true; authSubmit.textContent = "Please wait…"; }
 
     try {
       const endpoint = authMode === "register" ? "/api/auth/register" : "/api/auth/login";
       const payload = JSON.stringify({ email, password });
       console.log("[auth]", authMode, endpoint, "email:", email, "pw-len:", password.length);
+
       const res = await _origFetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: payload,
       });
 
-      const data = await res.json();
+      // Read response body — handle non-JSON gracefully
+      let data;
+      const contentType = res.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        console.warn("[auth] non-JSON response:", res.status, text.slice(0, 500));
+        data = { error: `Server returned ${res.status}: ${text.slice(0, 200)}` };
+      }
+
       console.log("[auth] response", res.status, data);
       if (!res.ok) {
-        throw new Error(data.error || "Authentication failed.");
+        throw new Error(data.error || `Server error ${res.status}`);
       }
 
       setAuth(data.token, data.user);
       hideAuth();
       fetchHistory();
     } catch (err) {
-      console.error("[auth] error:", err.message);
-      if (authError) {
-        authError.textContent = err.message;
-        authError.classList.remove("hidden");
-      }
+      showAuthError(err.message || "Something went wrong. Please try again.");
     } finally {
-      // Reset button text without hiding the error message
       if (authSubmit) {
         authSubmit.disabled = false;
         authSubmit.textContent = authMode === "register" ? "Create account" : "Sign in";
