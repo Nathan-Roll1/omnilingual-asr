@@ -2731,6 +2731,20 @@ function getSpectrogramFFTSize(windowLength, sampleRate) {
   return Math.max(256, Math.min(fft, 4096));
 }
 
+// ---- Mel scale helpers ----
+function hzToMel(hz)  { return 2595 * Math.log10(1 + hz / 700); }
+function melToHz(mel)  { return 700 * (Math.pow(10, mel / 2595) - 1); }
+
+// Map a frequency (Hz) to a normalized 0-1 position on the mel axis (0 = low, 1 = high)
+function hzToMelNorm(hz, maxFreqHz) {
+  return hzToMel(hz) / hzToMel(maxFreqHz);
+}
+
+// Map a normalized mel position (0 = low, 1 = high) back to Hz
+function melNormToHz(norm, maxFreqHz) {
+  return melToHz(norm * hzToMel(maxFreqHz));
+}
+
 // ---- Spectrogram viewport cache ----
 // Only computes a window around the current view (not the entire audio).
 // Window = visible 5 s + 10 s buffer each side = up to ~25 s cached.
@@ -2813,12 +2827,25 @@ async function buildSpectrogramCache(centerTime) {
   const preEmph = spectrogramSettings.preEmphasis > 0 ? 0.97 : 0;
   const dynRange = spectrogramSettings.dynamicRange;
 
-  // Offscreen canvas
+  // Mel-scale output resolution (pixel rows in offscreen canvas)
+  const melRows = 256;
+
+  // Pre-compute mel-to-bin lookup: for each output pixel row, which FFT bin?
+  const melMax = hzToMel(maxFreqHz);
+  const melBinLookup = new Float32Array(melRows); // fractional bin index per row
+  for (let row = 0; row < melRows; row++) {
+    // row 0 = top = highest freq, row melRows-1 = bottom = lowest freq
+    const melFrac = (melRows - 1 - row) / (melRows - 1 || 1);
+    const hz = melToHz(melFrac * melMax);
+    melBinLookup[row] = (hz / maxFreqHz) * (usableBins - 1);
+  }
+
+  // Offscreen canvas at native resolution (cols × melRows)
   const offscreen = document.createElement("canvas");
   offscreen.width = numCols;
-  offscreen.height = usableBins;
+  offscreen.height = melRows;
   const offCtx = offscreen.getContext("2d");
-  const imageData = offCtx.createImageData(numCols, usableBins);
+  const imageData = offCtx.createImageData(numCols, melRows);
   const px = imageData.data;
 
   const intensityCache = new Float32Array(numCols);
@@ -2847,8 +2874,9 @@ async function buildSpectrogramCache(centerTime) {
   }
   const refLevel = globalMax || 1;
 
-  // --- Pass 2: full computation (chunked async) ---
+  // --- Pass 2: full computation with mel-scale pixel mapping ---
   const CHUNK = 500;
+  const colMag = new Float32Array(usableBins); // reusable per-column buffer
   for (let cS = 0; cS < numCols; cS += CHUNK) {
     const cE = Math.min(cS + CHUNK, numCols);
     for (let col = cS; col < cE; col++) {
@@ -2870,13 +2898,23 @@ async function buildSpectrogramCache(centerTime) {
       intensityCache[col] = 10 * Math.log10(rmsSum / fftSize + 1e-10);
       FFT.fft(real, imag);
 
-      for (let bin = 0; bin < usableBins; bin++) {
-        const mag = Math.sqrt(real[bin] * real[bin] + imag[bin] * imag[bin]);
+      // Store magnitudes for all bins
+      for (let b = 0; b < usableBins; b++) {
+        colMag[b] = Math.sqrt(real[b] * real[b] + imag[b] * imag[b]);
+      }
+
+      // Render mel-scaled pixel rows (interpolating between FFT bins)
+      for (let row = 0; row < melRows; row++) {
+        const binF = melBinLookup[row];
+        const b0 = Math.floor(binF);
+        const b1 = Math.min(b0 + 1, usableBins - 1);
+        const frac = binF - b0;
+        const mag = colMag[b0] * (1 - frac) + colMag[b1] * frac;
+
         const dB = mag > 0 ? 20 * Math.log10(mag / refLevel) : -dynRange;
         const norm = Math.max(0, Math.min(1, (dB + dynRange) / dynRange));
         const gray = 255 - Math.floor(255 * norm);
-        const py2 = usableBins - 1 - bin;
-        const idx = (py2 * numCols + col) * 4;
+        const idx = (row * numCols + col) * 4;
         px[idx] = gray; px[idx + 1] = gray; px[idx + 2] = gray; px[idx + 3] = 255;
       }
     }
@@ -2886,12 +2924,12 @@ async function buildSpectrogramCache(centerTime) {
   offCtx.putImageData(imageData, 0, 0);
 
   spectrogramCache = {
-    offscreen, numCols, usableBins, maxFreqHz,
+    offscreen, numCols, melRows, usableBins, maxFreqHz,
     hopSamples: hopSize, fftSize, totalSamples, sampleRate,
     cachedStartSample: cacheStartSample,
     cachedEndSample: cacheEndSample,
     intensity: intensityCache,
-    formants: null, // computed lazily when toggled on
+    formants: null,
   };
 
   if (typeof updateFrequencyAxis === "function") updateFrequencyAxis();
@@ -3006,15 +3044,16 @@ function renderSpectrogramView() {
   const drawH = height - rulerH;
 
   // GPU-accelerated blit — instant
+  const melH = cache.melRows || cache.usableBins;
   spectrogramCtx.imageSmoothingEnabled = true;
   spectrogramCtx.imageSmoothingQuality = "high";
   spectrogramCtx.drawImage(
     cache.offscreen,
-    startCol, 0, Math.max(1, endCol - startCol), cache.usableBins,
+    startCol, 0, Math.max(1, endCol - startCol), melH,
     0, 0, width, drawH
   );
 
-  // Formant overlay
+  // Formant overlay (mel-scaled y positions)
   if (showFormants && cache.formants) {
     const colors = ["#ff0000", "#ff6600", "#00bb00", "#0066ff", "#aa00ff"];
     const dotR = 1.5 * dpr;
@@ -3028,7 +3067,8 @@ function renderSpectrogramView() {
         const freq = fm[f];
         if (freq < 100 || freq > cache.maxFreqHz) continue;
         const x = ((col - startCol) / colRange) * width;
-        const y = (1 - freq / cache.maxFreqHz) * drawH;
+        const melNorm = hzToMelNorm(freq, cache.maxFreqHz);
+        const y = (1 - melNorm) * drawH;
         spectrogramCtx.fillRect(x - dotR, y - dotR, dotR * 2, dotR * 2);
       }
     }
@@ -4492,9 +4532,10 @@ if (splitContainer) {
       time = (x / width) * duration;
     }
     
-    // Frequency — use same dynamic max as the rendered spectrogram
+    // Frequency — mel-scaled: y position maps through mel scale back to Hz
     const maxFreq = spectrogramMaxFreq || (audioBufferCache ? audioBufferCache.sampleRate / 2 : 8000);
-    const freq = maxFreq * (1 - y / height);
+    const melNorm = 1 - y / height; // 0 at bottom (low), 1 at top (high)
+    const freq = melNormToHz(melNorm, maxFreq);
     
     if (cursorTimeEl) {
       cursorTimeEl.textContent = formatTimeMs(time);
@@ -4846,16 +4887,20 @@ function updateFrequencyAxis() {
 
   const maxFreq = spectrogramMaxFreq || (audioBufferCache ? audioBufferCache.sampleRate / 2 : 8000);
 
-  // Build nice frequency marks up to the dynamic max
-  const candidates = [0, 500, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 10000, 12000, 16000, 20000, 24000];
-  const freqMarks = candidates.filter(f => f <= maxFreq);
-  // Always include the max itself if it's rounded nicely
-  if (maxFreq % 1000 === 0 && !freqMarks.includes(maxFreq)) freqMarks.push(maxFreq);
+  // Candidate frequencies for axis labels
+  const candidates = [0, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 10000, 12000, 16000, 20000, 24000];
+  const freqMarks = candidates.filter(f => f <= maxFreq && f > 0);
 
-  freqMarks.reverse().forEach(freq => {
+  // Position labels using mel scale (percentage from top of axis)
+  freqMarks.forEach(freq => {
     const mark = document.createElement("div");
     mark.className = "freq-mark";
     mark.textContent = freq >= 1000 ? `${freq/1000}k` : freq;
+    // mel-scaled position: 0% = top (high freq), 100% = bottom (low freq)
+    const melNorm = hzToMelNorm(freq, maxFreq);
+    mark.style.position = "absolute";
+    mark.style.top = `${(1 - melNorm) * 100}%`;
+    mark.style.transform = "translateY(-50%)";
     freqAxis.appendChild(mark);
   });
 }
