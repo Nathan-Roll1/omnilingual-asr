@@ -2546,6 +2546,7 @@ async function computeWaveformData() {
 // Clear audio buffer cache and reset zoom when audio source changes
 audioEl.addEventListener("emptied", () => {
   audioBufferCache = null;
+  spectrogramMaxFreq = 0; // reset so next audio re-detects
   waveformZoom = 1;
   waveformScrollOffset = 0;
   waveformData = null;
@@ -2683,9 +2684,43 @@ const FFT = {
   }
 };
 
+// Dynamic max frequency — auto-detect energy ceiling of the audio
+let spectrogramMaxFreq = 0; // 0 = auto-detect
+
+function detectMaxFrequency(channelData, sampleRate) {
+  // Sample a few windows across the audio and find the highest bin with energy
+  const fftSize = 2048;
+  const numSamples = 20;
+  const step = Math.floor(channelData.length / numSamples);
+  const threshold = 0.001; // Minimum magnitude to count as "energy"
+  let highestBin = 0;
+
+  for (let s = 0; s < numSamples; s++) {
+    const start = s * step;
+    const timeSlice = new Float32Array(fftSize);
+    for (let i = 0; i < fftSize; i++) {
+      const idx = start + i;
+      timeSlice[i] = idx < channelData.length ? channelData[idx] : 0;
+    }
+    const spectrum = FFT.computeSpectrum(timeSlice, fftSize);
+    for (let i = spectrum.length - 1; i > highestBin; i--) {
+      if (spectrum[i] > threshold) {
+        highestBin = i;
+        break;
+      }
+    }
+  }
+
+  // Convert bin to Hz, round up to nearest 1000, add some headroom
+  const binFreq = (highestBin / (fftSize / 2)) * (sampleRate / 2);
+  const nyquist = sampleRate / 2;
+  const capped = Math.min(Math.ceil(binFreq / 1000) * 1000 + 1000, nyquist);
+  return Math.max(4000, capped); // At least 4kHz
+}
+
 async function computeSpectrogram() {
   if (!audioEl.duration || !spectrogramCtx) return;
-  
+
   // Ensure we have audio buffer
   if (!audioBufferCache) {
     if (audioEl.src) {
@@ -2705,97 +2740,140 @@ async function computeSpectrogram() {
   }
 
   const canvas = spectrogramCanvas;
-  const width = canvas.width; // Actual pixel width (dpr adjusted)
+  const width = canvas.width;
   const height = canvas.height;
-  
-  // Clear canvas (white background)
+  const dpr = window.devicePixelRatio || 1;
+
+  // White background
   spectrogramCtx.fillStyle = "#ffffff";
   spectrogramCtx.fillRect(0, 0, width, height);
 
   const channelData = audioBufferCache.getChannelData(0);
   const sampleRate = audioBufferCache.sampleRate;
   const totalSamples = channelData.length;
-  
-  // FFT parameters
-  const fftSize = 512; // Lower resolution for speed, but acceptable for visual
+  const nyquist = sampleRate / 2;
+
+  // Auto-detect max frequency if not set
+  if (!spectrogramMaxFreq) {
+    spectrogramMaxFreq = detectMaxFrequency(channelData, sampleRate);
+  }
+  const maxFreqHz = spectrogramMaxFreq;
+  const maxBinRatio = maxFreqHz / nyquist; // fraction of bins to use
+
+  // FFT parameters — larger for better frequency resolution
+  const fftSize = 2048;
   const frequencyBinCount = fftSize / 2;
-  
-  // Calculate visible range
+  const usableBins = Math.floor(frequencyBinCount * maxBinRatio);
+  const hopSize = fftSize / 4; // 75% overlap for smooth time axis
+
+  // Calculate visible sample range
   let startSample = 0;
   let endSample = totalSamples;
-  
+
   if (waveformZoom > 1 && waveformData) {
-    // waveformData.length is already zoomed (baseWidth * waveformZoom)
-    // So we need to calculate visible time range properly
     const totalWaveformPoints = waveformData.length;
     const duration = audioEl.duration;
-    const dpr = window.devicePixelRatio || 1;
     const canvasWidthLogical = canvas.width / dpr;
-    
-    // Calculate visible time range
     const visibleStartTime = (waveformScrollOffset / totalWaveformPoints) * duration;
     const visibleEndTime = ((waveformScrollOffset + canvasWidthLogical) / totalWaveformPoints) * duration;
-    
     startSample = Math.floor(visibleStartTime * sampleRate);
     endSample = Math.floor(visibleEndTime * sampleRate);
   }
-  
-  // Clamp
   startSample = Math.max(0, startSample);
   endSample = Math.min(totalSamples, endSample);
-  
-  const samplesPerPixel = (endSample - startSample) / width;
-  
-  // Offscreen rendering for performance
-  const imageData = spectrogramCtx.createImageData(width, height);
-  const data = imageData.data;
-  
-  // Generate spectrogram columns
-  // We skip pixels to keep it fast if needed, but 1px resolution is best
-  for (let x = 0; x < width; x++) {
-    const centerSample = Math.floor(startSample + x * samplesPerPixel);
-    
-    // Extract window
-    const windowStart = centerSample - fftSize / 2;
-    const timeSlice = new Float32Array(fftSize);
-    
+
+  const visibleSamples = endSample - startSample;
+
+  // Pre-compute all FFT columns at hop intervals
+  const numColumns = Math.max(1, Math.floor(visibleSamples / hopSize));
+  const spectra = new Array(numColumns);
+
+  // Pre-allocate Hanning window
+  const hannWindow = new Float32Array(fftSize);
+  for (let i = 0; i < fftSize; i++) {
+    hannWindow[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (fftSize - 1)));
+  }
+
+  // Compute all spectra (with Hanning window baked in)
+  for (let col = 0; col < numColumns; col++) {
+    const center = startSample + col * hopSize;
+    const windowStart = center - fftSize / 2;
+    const real = new Float32Array(fftSize);
+    const imag = new Float32Array(fftSize);
+
     for (let i = 0; i < fftSize; i++) {
       const idx = windowStart + i;
-      if (idx >= 0 && idx < totalSamples) {
-        timeSlice[i] = channelData[idx];
-      }
+      real[i] = (idx >= 0 && idx < totalSamples ? channelData[idx] : 0) * hannWindow[i];
     }
-    
-    const spectrum = FFT.computeSpectrum(timeSlice, fftSize);
-    
-    // Map spectrum to pixels (y-axis)
-    // Logarithmic frequency scale looks better usually, but linear is standard for simple views
-    // Let's do linear for simplicity first, or simple log mapping
-    
-    for (let y = 0; y < height; y++) {
-      // Linear freq mapping: 0 to Nyquist
-      // Flip y (0 is top) and map full height to full bin range
-      const normalizedY = height > 1 ? y / (height - 1) : 0;
-      const freqIndex = Math.floor((1 - normalizedY) * (frequencyBinCount - 1));
-      const magnitude = spectrum[freqIndex] || 0;
-      
-      // Log magnitude for visibility
-      const intensity = Math.log10(magnitude * 100 + 1) * 60; // Scaling factor
-      const normalized = Math.min(1, Math.max(0, intensity / 100));
-      
-      // Praat-style grayscale: white = silence, black = loud
-      const gray = Math.floor(255 * (1 - normalized));
-      const r = gray, g = gray, b = gray;
-      
-      const pixelIndex = (y * width + x) * 4;
-      data[pixelIndex] = r;
-      data[pixelIndex + 1] = g;
-      data[pixelIndex + 2] = b;
-      data[pixelIndex + 3] = 255;
+
+    FFT.fft(real, imag);
+
+    // Store only the magnitude of usable bins (up to maxFreq)
+    const mag = new Float32Array(usableBins);
+    for (let i = 0; i < usableBins; i++) {
+      mag[i] = Math.sqrt(real[i] * real[i] + imag[i] * imag[i]);
+    }
+    spectra[col] = mag;
+  }
+
+  // Find global max for dB normalization
+  let globalMax = 0;
+  for (let col = 0; col < numColumns; col++) {
+    for (let i = 0; i < usableBins; i++) {
+      if (spectra[col][i] > globalMax) globalMax = spectra[col][i];
     }
   }
-  
+  const refLevel = globalMax || 1;
+  const dynamicRangeDB = 70; // Show 70dB of dynamic range
+
+  // Render to image data with bilinear interpolation
+  const imageData = spectrogramCtx.createImageData(width, height);
+  const data = imageData.data;
+
+  for (let px = 0; px < width; px++) {
+    // Map pixel x to fractional column index
+    const colF = (px / width) * (numColumns - 1);
+    const col0 = Math.floor(colF);
+    const col1 = Math.min(col0 + 1, numColumns - 1);
+    const colFrac = colF - col0;
+
+    for (let py = 0; py < height; py++) {
+      // Map pixel y to frequency bin (top = high freq, bottom = low)
+      const normalizedY = py / (height - 1 || 1);
+      const binF = (1 - normalizedY) * (usableBins - 1);
+      const bin0 = Math.floor(binF);
+      const bin1 = Math.min(bin0 + 1, usableBins - 1);
+      const binFrac = binF - bin0;
+
+      // Bilinear interpolation across time and frequency
+      const m00 = spectra[col0][bin0];
+      const m01 = spectra[col0][bin1];
+      const m10 = spectra[col1][bin0];
+      const m11 = spectra[col1][bin1];
+
+      const mTop = m00 + (m10 - m00) * colFrac;
+      const mBot = m01 + (m11 - m01) * colFrac;
+      const magnitude = mTop + (mBot - mTop) * binFrac;
+
+      // Convert to dB, normalize to dynamic range
+      const dB = magnitude > 0 ? 20 * Math.log10(magnitude / refLevel) : -dynamicRangeDB;
+      const normalized = Math.max(0, Math.min(1, (dB + dynamicRangeDB) / dynamicRangeDB));
+
+      // Praat-style grayscale: white = silence, black = loud
+      const gray = Math.floor(255 * (1 - normalized));
+
+      const idx = (py * width + px) * 4;
+      data[idx] = gray;
+      data[idx + 1] = gray;
+      data[idx + 2] = gray;
+      data[idx + 3] = 255;
+    }
+  }
+
   spectrogramCtx.putImageData(imageData, 0, 0);
+
+  // Keep frequency axis in sync with detected max
+  if (typeof updateFrequencyAxis === "function") updateFrequencyAxis();
 }
 
 // Replaces the real-time drawSpectrogram
@@ -3224,23 +3302,63 @@ function handleCanvasClick(e) {
 if (waveformCanvasContainer) {
   waveformCanvasContainer.addEventListener("pointerdown", handleCanvasClick, true);
   
-  // Add scroll wheel support for panning when zoomed
+  // Wheel / trackpad: pinch-to-zoom (ctrlKey) + two-finger pan
   waveformCanvasContainer.addEventListener("wheel", (e) => {
-    if (waveformZoom <= 1 || !waveformData) return;
-    
     e.preventDefault();
-    
+
     const container = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
     const canvasWidth = container.offsetWidth;
+
+    // --- Pinch-to-zoom (trackpad pinch sends ctrlKey + deltaY) ---
+    if (e.ctrlKey) {
+      const rect = waveformCanvasContainer.getBoundingClientRect();
+      const cursorX = e.clientX - rect.left; // cursor position in logical px
+
+      const oldZoom = waveformZoom;
+      const zoomFactor = 1 - e.deltaY * 0.01; // trackpad deltaY is small
+      const newZoom = Math.max(1, Math.min(oldZoom * zoomFactor, 50));
+
+      if (newZoom === oldZoom) return;
+
+      // Keep the point under cursor stable
+      const oldTotalWidth = waveformData ? waveformData.length : canvasWidth;
+      // Position in data space that the cursor points at
+      const cursorDataPos = waveformScrollOffset + cursorX;
+      // Scale that position to new data width
+      const ratio = newZoom / oldZoom;
+      const newCursorDataPos = cursorDataPos * ratio;
+      // New scroll so cursor stays on same data point
+      const newScrollOffset = newCursorDataPos - cursorX;
+
+      waveformZoom = newZoom;
+
+      computeWaveformData().then(() => {
+        const totalWidth = waveformData ? waveformData.length : canvasWidth;
+        waveformScrollOffset = Math.max(0, Math.min(newScrollOffset, totalWidth - canvasWidth));
+        if (waveformZoom <= 1) waveformScrollOffset = 0;
+
+        if (currentWaveformView === "waveform") {
+          drawWaveform();
+        } else {
+          computeSpectrogram();
+        }
+        renderSegmentsOnWaveform();
+        renderWordsOnWaveform();
+        updateTimeRuler();
+        updatePlayhead();
+      });
+      return;
+    }
+
+    // --- Normal scroll / two-finger pan ---
+    if (waveformZoom <= 1 || !waveformData) return;
+
     const totalWidth = waveformData.length;
-    
-    // Scroll horizontally (shift+wheel or horizontal scroll)
     const delta = e.shiftKey ? e.deltaY : e.deltaX || e.deltaY;
-    const scrollAmount = delta * 0.5; // Adjust sensitivity
-    
+    const scrollAmount = delta * 0.5;
+
     waveformScrollOffset = Math.max(0, Math.min(waveformScrollOffset + scrollAmount, totalWidth - canvasWidth));
-    
-    // Redraw with new scroll position
+
     if (currentWaveformView === "waveform") {
       drawWaveform();
     } else {
@@ -4102,8 +4220,8 @@ if (splitContainer) {
       time = (x / width) * duration;
     }
     
-    // Frequency (assuming spectrogram view, linear scale 0-8000Hz)
-    const maxFreq = audioBufferCache ? audioBufferCache.sampleRate / 2 : 8000;
+    // Frequency — use same dynamic max as the rendered spectrogram
+    const maxFreq = spectrogramMaxFreq || (audioBufferCache ? audioBufferCache.sampleRate / 2 : 8000);
     const freq = maxFreq * (1 - y / height);
     
     if (cursorTimeEl) {
@@ -4398,12 +4516,17 @@ const freqAxis = document.getElementById("waveform-freq-axis");
 
 function updateFrequencyAxis() {
   if (!freqAxis) return;
-  
+
   freqAxis.innerHTML = "";
-  
-  const maxFreq = audioBufferCache ? audioBufferCache.sampleRate / 2 : 8000;
-  const freqMarks = [0, 1000, 2000, 4000, 6000, 8000].filter(f => f <= maxFreq);
-  
+
+  const maxFreq = spectrogramMaxFreq || (audioBufferCache ? audioBufferCache.sampleRate / 2 : 8000);
+
+  // Build nice frequency marks up to the dynamic max
+  const candidates = [0, 500, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 10000, 12000, 16000, 20000, 24000];
+  const freqMarks = candidates.filter(f => f <= maxFreq);
+  // Always include the max itself if it's rounded nicely
+  if (maxFreq % 1000 === 0 && !freqMarks.includes(maxFreq)) freqMarks.push(maxFreq);
+
   freqMarks.reverse().forEach(freq => {
     const mark = document.createElement("div");
     mark.className = "freq-mark";
