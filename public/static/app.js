@@ -84,11 +84,11 @@ const modalConfirm = document.getElementById("modal-confirm");
 const languageSelect = document.getElementById("language-select");
 const speakerCountSelect = document.getElementById("speaker-count");
 
-// Steps for pipeline (uploading, transcribing, aligning, processing, done)
-const GEMINI_STEPS = ["uploading", "transcribing", "aligning", "processing", "done"];
-const LOCAL_STEPS = ["loading", "diarizing", "transcribing", "aligning", "done"];
+// Steps for pipeline (uploading, transcribing, processing, done)
+const GEMINI_STEPS = ["uploading", "transcribing", "processing", "done"];
+const LOCAL_STEPS = ["loading", "diarizing", "transcribing", "done"];
 const STEPS = [...GEMINI_STEPS, ...LOCAL_STEPS]; // Combined for lookup
-const STEP_COUNT = 5;
+const STEP_COUNT = 4;
 
 let historyCache = new Map();
 let historyItems = [];
@@ -438,9 +438,8 @@ function getStepIndex(stepName) {
   const stepMap = {
     "uploading": 0,
     "transcribing": 1,
-    "aligning": 2,
-    "processing": 3,
-    "done": 4,
+    "processing": 2,
+    "done": 3,
     // Legacy local model steps
     "loading": 0,
     "diarizing": 1,
@@ -1813,9 +1812,6 @@ async function activateTranscript(data) {
     
     // Reset audio source connection when switching tracks
     audioSource = null;
-    
-    // Auto-show waveform panel when audio is available
-    showWaveformPanel();
   } else {
     // No audio available - hide player and waveform
     audioEl.src = "";
@@ -2350,6 +2346,7 @@ const waveformCanvas = document.getElementById("waveform-canvas");
 const spectrogramCanvas = document.getElementById("spectrogram-canvas");
 const waveformPlayhead = document.getElementById("waveform-playhead");
 const waveformSegments = document.getElementById("waveform-segments");
+const waveformTextTier = document.getElementById("waveform-text-tier");
 const waveformTimeRuler = document.getElementById("waveform-time-ruler");
 const waveformCanvasContainer = document.querySelector(".waveform-canvas-container");
 const toggleWaveformBtn = document.getElementById("toggle-waveform");
@@ -3283,6 +3280,78 @@ function renderSegmentsOnWaveform() {
     
     waveformSegments.appendChild(segmentEl);
   });
+
+  // Also render the text tier below
+  renderTextTier();
+}
+
+// Render segment text in the tier below the spectrogram/waveform
+function renderTextTier() {
+  if (!waveformTextTier || !activeData?.segments || !audioEl.duration) return;
+
+  waveformTextTier.innerHTML = "";
+  const duration = audioEl.duration;
+  const container = document.getElementById("waveform-split-container") || waveformCanvas.parentElement;
+  const canvasWidth = container.offsetWidth;
+
+  let visibleStartTime = 0;
+  let visibleEndTime = duration;
+
+  if (waveformZoom > 1 && waveformData) {
+    const totalWidth = waveformData.length;
+    visibleStartTime = (waveformScrollOffset / totalWidth) * duration;
+    visibleEndTime = ((waveformScrollOffset + canvasWidth) / totalWidth) * duration;
+  }
+
+  activeData.segments.forEach((segment, idx) => {
+    if (waveformZoom > 1 && (segment.end < visibleStartTime || segment.start > visibleEndTime)) {
+      return;
+    }
+
+    let startPct, widthPct;
+
+    if (waveformZoom > 1 && waveformData) {
+      const visibleDuration = visibleEndTime - visibleStartTime;
+      const segStart = Math.max(segment.start, visibleStartTime);
+      const segEnd = Math.min(segment.end, visibleEndTime);
+      startPct = ((segStart - visibleStartTime) / visibleDuration) * 100;
+      widthPct = ((segEnd - segStart) / visibleDuration) * 100;
+    } else {
+      startPct = (segment.start / duration) * 100;
+      widthPct = ((segment.end - segment.start) / duration) * 100;
+    }
+
+    const cell = document.createElement("div");
+    cell.className = "tier-cell";
+    cell.style.left = `${startPct}%`;
+    cell.style.width = `${widthPct}%`;
+
+    // Speaker badge
+    const speaker = document.createElement("span");
+    speaker.className = "tier-speaker";
+    speaker.textContent = segment.speaker || `#${idx + 1}`;
+    cell.appendChild(speaker);
+
+    // Segment text
+    const textSpan = document.createElement("span");
+    textSpan.className = "tier-text";
+    let text = "";
+    if (segment.words && segment.words.length > 0) {
+      text = segment.words.map(w => w.word || w.text || "").join(" ");
+    } else if (segment.text) {
+      text = segment.text;
+    }
+    textSpan.textContent = text;
+    cell.appendChild(textSpan);
+
+    // Click to play segment
+    cell.addEventListener("click", () => {
+      audioEl.currentTime = segment.start;
+      audioEl.play();
+    });
+
+    waveformTextTier.appendChild(cell);
+  });
 }
 
 function setupDragHandle(handle, segment, segIdx, handleType) {
@@ -4154,10 +4223,8 @@ audioEl.addEventListener("timeupdate", () => {
 
 // Re-initialize visualization when audio source changes
 audioEl.addEventListener("loadedmetadata", () => {
-  // Auto-show the panel when audio metadata is ready
-  if (!isWaveformVisible && audioEl.src) {
-    showWaveformPanel();
-  } else if (isWaveformVisible) {
+  // Only refresh visualization if the panel is already visible (no auto-open)
+  if (isWaveformVisible) {
     ensureAudioSource();
     resizeWaveformCanvas();
     computeWaveformData().then(() => {

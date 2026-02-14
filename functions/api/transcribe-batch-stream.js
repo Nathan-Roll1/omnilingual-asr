@@ -1,9 +1,28 @@
 import { transcribeWithGemini, getMimeType } from "./_gemini.js";
-import { alignWithGroq, refineTimestamps } from "./_groq.js";
 import { putHistory, storeAudio, getSessionKey } from "./_history.js";
 
 function sseEvent(type, data) {
   return `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
+// Concurrency-limited parallel execution
+async function parallelMap(items, fn, concurrency = 3) {
+  const results = new Array(items.length);
+  let next = 0;
+
+  async function worker() {
+    while (next < items.length) {
+      const idx = next++;
+      results[idx] = await fn(items[idx], idx);
+    }
+  }
+
+  const workers = [];
+  for (let i = 0; i < Math.min(concurrency, items.length); i++) {
+    workers.push(worker());
+  }
+  await Promise.all(workers);
+  return results;
 }
 
 export async function onRequestPost({ request, env }) {
@@ -41,8 +60,8 @@ export async function onRequestPost({ request, env }) {
 
         controller.enqueue(encoder.encode(sseEvent("progress", { step: "transcribing", index: 1 })));
 
-        const results = [];
-        for (const file of files) {
+        // Process files in parallel (up to 3 concurrent Gemini requests)
+        const results = await parallelMap(files, async (file) => {
           const audioBuffer = await file.arrayBuffer();
           const result = await transcribeWithGemini({
             apiKey: env.GEMINI_API_KEY,
@@ -51,22 +70,6 @@ export async function onRequestPost({ request, env }) {
             language,
             speakerCount,
           });
-
-          // Forced alignment via Groq Whisper
-          if (env.GROQ_API_KEY) {
-            try {
-              const groqWords = await alignWithGroq({
-                apiKey: env.GROQ_API_KEY,
-                audioBuffer,
-                filename: file.name,
-              });
-              if (groqWords) {
-                result.segments = refineTimestamps(result.segments, groqWords);
-              }
-            } catch (alignErr) {
-              console.error("Groq alignment failed (non-fatal):", alignErr.message);
-            }
-          }
 
           const id = crypto.randomUUID();
 
@@ -91,12 +94,11 @@ export async function onRequestPost({ request, env }) {
             await putHistory(env.DB, entry, sessionKey);
           }
 
-          results.push(entry);
-        }
+          return entry;
+        }, 3);
 
-        controller.enqueue(encoder.encode(sseEvent("progress", { step: "aligning", index: 2 })));
-        controller.enqueue(encoder.encode(sseEvent("progress", { step: "processing", index: 3 })));
-        controller.enqueue(encoder.encode(sseEvent("progress", { step: "done", index: 4 })));
+        controller.enqueue(encoder.encode(sseEvent("progress", { step: "processing", index: 2 })));
+        controller.enqueue(encoder.encode(sseEvent("progress", { step: "done", index: 3 })));
         controller.enqueue(encoder.encode(sseEvent("result", { results })));
       } catch (err) {
         controller.enqueue(

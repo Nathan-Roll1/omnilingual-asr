@@ -1863,6 +1863,7 @@ body {
   z-index: 20;
 }
 .waveform-panel.collapsed .waveform-canvas-container { display: none; }
+.waveform-panel.collapsed .waveform-text-tier { display: none; }
 .waveform-panel.collapsed #waveform-collapse svg { transform: rotate(180deg); }
 
 .waveform-header {
@@ -2003,42 +2004,61 @@ body {
 .waveform-segment:nth-child(odd) { background: rgba(140,21,21,0.04); }
 .waveform-segment:nth-child(odd):hover { background: rgba(140,21,21,0.08); }
 
-.waveform-segment-label {
-  position: absolute;
-  top: 3px; left: 3px;
-  font-size: 0.55rem;
-  color: #fff;
-  background: rgba(140,21,21,0.7);
-  padding: 1px 5px;
-  border-radius: 3px;
-  white-space: nowrap;
-  max-width: 80px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  z-index: 2;
-}
+.waveform-segment-label { display: none; }
+.waveform-segment-text { display: none; }
 
-.waveform-segment-text {
+/* ── Text tier below spectrogram/waveform (Praat-style) ── */
+.waveform-text-tier {
+  position: relative;
+  height: 34px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  overflow: hidden;
+  user-select: none;
+  flex-shrink: 0;
+}
+.waveform-text-tier:empty { display: none; }
+
+.tier-cell {
   position: absolute;
-  top: 50%; left: 50%;
-  transform: translate(-50%, -50%);
-  color: rgba(0,0,0,0.6);
+  top: 0; bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 5px;
+  border-right: 1px solid var(--border);
   font-size: 0.68rem;
   font-weight: 500;
-  text-align: center;
-  max-width: calc(100% - 12px);
+  color: var(--ink-muted, #555);
+  overflow: hidden;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+.tier-cell:first-child { border-left: 1px solid var(--border); }
+.tier-cell:hover { background: rgba(140,21,21,0.06); }
+.tier-cell:nth-child(odd) { background: rgba(140,21,21,0.02); }
+.tier-cell:nth-child(odd):hover { background: rgba(140,21,21,0.08); }
+
+.tier-speaker {
+  font-size: 0.52rem;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(140,21,21,0.72);
+  padding: 1px 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.tier-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  pointer-events: none;
-  z-index: 1;
+  min-width: 0;
 }
-.waveform-segment:hover .waveform-segment-text {
+.tier-cell:hover .tier-text {
   white-space: normal;
-  background: rgba(255,255,255,0.9);
-  padding: 3px 6px;
-  border-radius: var(--radius-xs);
-  color: var(--ink);
+  word-break: break-word;
 }
 
 .waveform-segment-handle {

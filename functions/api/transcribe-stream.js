@@ -1,5 +1,4 @@
 import { transcribeWithGemini, getMimeType } from "./_gemini.js";
-import { alignWithGroq, refineTimestamps } from "./_groq.js";
 import { putHistory, storeAudio, getSessionKey } from "./_history.js";
 
 function sseEvent(type, data) {
@@ -50,25 +49,7 @@ export async function onRequestPost({ request, env }) {
           speakerCount,
         });
 
-        // Step 2: Forced alignment via Groq Whisper for word-level timestamps
-        controller.enqueue(encoder.encode(sseEvent("progress", { step: "aligning", index: 2 })));
-
-        if (env.GROQ_API_KEY) {
-          try {
-            const groqWords = await alignWithGroq({
-              apiKey: env.GROQ_API_KEY,
-              audioBuffer,
-              filename: file.name,
-            });
-            if (groqWords) {
-              result.segments = refineTimestamps(result.segments, groqWords);
-            }
-          } catch (alignErr) {
-            console.error("Groq alignment failed (non-fatal):", alignErr.message);
-          }
-        }
-
-        controller.enqueue(encoder.encode(sseEvent("progress", { step: "processing", index: 3 })));
+        controller.enqueue(encoder.encode(sseEvent("progress", { step: "processing", index: 2 })));
 
         const id = crypto.randomUUID();
 
@@ -93,7 +74,7 @@ export async function onRequestPost({ request, env }) {
           await putHistory(env.DB, entry, sessionKey);
         }
 
-        controller.enqueue(encoder.encode(sseEvent("progress", { step: "done", index: 4 })));
+        controller.enqueue(encoder.encode(sseEvent("progress", { step: "done", index: 3 })));
         controller.enqueue(encoder.encode(sseEvent("result", entry)));
       } catch (err) {
         controller.enqueue(

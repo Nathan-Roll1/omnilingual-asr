@@ -84,11 +84,11 @@ const modalConfirm = document.getElementById("modal-confirm");
 const languageSelect = document.getElementById("language-select");
 const speakerCountSelect = document.getElementById("speaker-count");
 
-// Steps for pipeline (uploading, transcribing, aligning, processing, done)
-const GEMINI_STEPS = ["uploading", "transcribing", "aligning", "processing", "done"];
-const LOCAL_STEPS = ["loading", "diarizing", "transcribing", "aligning", "done"];
+// Steps for pipeline (uploading, transcribing, processing, done)
+const GEMINI_STEPS = ["uploading", "transcribing", "processing", "done"];
+const LOCAL_STEPS = ["loading", "diarizing", "transcribing", "done"];
 const STEPS = [...GEMINI_STEPS, ...LOCAL_STEPS]; // Combined for lookup
-const STEP_COUNT = 5;
+const STEP_COUNT = 4;
 
 let historyCache = new Map();
 let historyItems = [];
@@ -438,9 +438,8 @@ function getStepIndex(stepName) {
   const stepMap = {
     "uploading": 0,
     "transcribing": 1,
-    "aligning": 2,
-    "processing": 3,
-    "done": 4,
+    "processing": 2,
+    "done": 3,
     // Legacy local model steps
     "loading": 0,
     "diarizing": 1,
