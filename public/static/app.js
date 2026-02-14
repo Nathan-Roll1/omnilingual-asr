@@ -2577,8 +2577,8 @@ function drawWaveform() {
   
   // Draw background gradient
   const gradient = waveformCtx.createLinearGradient(0, 0, 0, height);
-  gradient.addColorStop(0, "#1a1a2e");
-  gradient.addColorStop(1, "#16213e");
+  gradient.addColorStop(0, "#1a1d26");
+  gradient.addColorStop(1, "#1e2230");
   waveformCtx.fillStyle = gradient;
   waveformCtx.fillRect(0, 0, canvasWidth, height);
   

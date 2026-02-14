@@ -1,5 +1,5 @@
 /* ==============================================
-   OmniTranscribe — Professional Dark Theme
+   OmniTranscribe — Professional Light Theme
    
    Palette based on Wong (2011) colorblind-safe colors:
    Blue #0072B2, Orange #E69F00, Vermillion #D55E00,
@@ -8,26 +8,26 @@
    ============================================== */
 
 :root {
-  /* Core surface palette — deep blue-black */
-  --bg: #0c0e16;
-  --bg-subtle: #111420;
-  --bg-elevated: #171b2a;
-  --ink: #e0e4ed;
-  --ink-secondary: #8b92a8;
-  --ink-muted: #525a72;
+  /* Core surface palette — warm white */
+  --bg: #ffffff;
+  --bg-subtle: #f7f8fa;
+  --bg-elevated: #f0f2f5;
+  --ink: #1a1d26;
+  --ink-secondary: #5f6577;
+  --ink-muted: #9099ad;
 
-  /* Accent — Stanford cardinal, adapted for dark */
-  --accent: #e05565;
-  --accent-hover: #e8697a;
-  --accent-subtle: rgba(224, 85, 101, 0.12);
-  --accent-dim: rgba(224, 85, 101, 0.06);
+  /* Accent — Stanford cardinal */
+  --accent: #8c1515;
+  --accent-hover: #a41d1d;
+  --accent-subtle: rgba(140, 21, 21, 0.08);
+  --accent-dim: rgba(140, 21, 21, 0.04);
 
   /* Surfaces & borders */
-  --surface: #151823;
-  --surface-raised: #1c2030;
-  --border: #232838;
-  --border-strong: #2e3448;
-  --border-dim: #1c2030;
+  --surface: #ffffff;
+  --surface-raised: #f7f8fa;
+  --border: #e2e5eb;
+  --border-strong: #cdd1da;
+  --border-dim: #eef0f3;
 
   /* Aliases */
   --bg-warm: var(--bg-subtle);
@@ -36,13 +36,13 @@
   --accent-glow: var(--accent-subtle);
   --card: var(--surface);
   --card-border: var(--border);
-  --sidebar: #0a0c14;
-  --sidebar-border: #1a1e2c;
+  --sidebar: #f7f8fa;
+  --sidebar-border: #e2e5eb;
 
-  /* Colorblind-safe speaker palette (Wong 2011), brightened for dark bg */
-  --speaker-a: #4db8e8;
-  --speaker-b: #e88040;
-  --speaker-c: #3cc690;
+  /* Colorblind-safe speaker palette (Wong 2011), darkened for light bg */
+  --speaker-a: #0072B2;
+  --speaker-b: #D55E00;
+  --speaker-c: #009E73;
 
   /* Typography */
   --font-sans: "Open Sans", system-ui, -apple-system, sans-serif;
@@ -69,10 +69,10 @@
   --radius-xl: 16px;
 
   /* Shadows */
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
-  --shadow-md: 0 4px 16px rgba(0,0,0,0.5);
-  --shadow-lg: 0 12px 40px rgba(0,0,0,0.6);
-  --shadow-glow: 0 0 20px rgba(224, 85, 101, 0.15);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.1);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,0.12);
+  --shadow-glow: 0 0 20px rgba(140, 21, 21, 0.08);
 
   /* Animation */
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
@@ -115,10 +115,10 @@ body {
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
+  background: var(--border);
   border-radius: 3px;
 }
-::-webkit-scrollbar-thumb:hover { background: var(--ink-muted); }
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
 
 .grain { display: none; }
 .hidden { display: none !important; }
@@ -238,7 +238,7 @@ body {
 .search-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.55);
+  background: rgba(0,0,0,0.2);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -405,7 +405,7 @@ body {
   width: auto;
   margin-top: -2px;
   opacity: 0.5;
-  filter: brightness(2);
+  filter: none;
   transition: opacity 0.15s ease;
 }
 .brand-affiliation:hover { opacity: 0.8; }
@@ -943,7 +943,7 @@ body {
 .progress-step.completed .step-indicator {
   background: var(--accent);
   border-color: var(--accent);
-  box-shadow: 0 0 12px rgba(224,85,101,0.3);
+  box-shadow: 0 0 12px rgba(140,21,21,0.2);
 }
 .progress-step.active .step-number { color: #fff; }
 .progress-step.completed .step-number { display: none; }
@@ -1467,7 +1467,7 @@ body {
   background: var(--bg-elevated);
   color: var(--ink);
   outline: 2px solid var(--accent);
-  box-shadow: 0 0 12px rgba(224,85,101,0.2);
+  box-shadow: 0 0 12px rgba(140,21,21,0.2);
   caret-color: var(--ink);
 }
 .word.editing:focus { outline: 2px solid var(--accent); caret-color: var(--ink); }
@@ -1516,7 +1516,7 @@ body {
   align-items: center;
   justify-content: center;
 }
-.player-btn:hover { color: var(--ink); background: rgba(255,255,255,0.05); }
+.player-btn:hover { color: var(--ink); background: rgba(0,0,0,0.05); }
 
 .player-time {
   font-family: var(--font-mono);
@@ -1626,7 +1626,7 @@ body {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.6);
+  background: rgba(0,0,0,0.25);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1776,7 +1776,7 @@ body {
 .shortcuts-modal {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.5);
+  background: rgba(0,0,0,0.25);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1915,7 +1915,7 @@ body {
 .waveform-canvas-container {
   position: relative;
   height: 240px;
-  background: #0a0c12;
+  background: #1a1d26;
   overflow: hidden;
 }
 
@@ -1940,7 +1940,7 @@ body {
   z-index: 50;
   pointer-events: none;
   left: 0;
-  box-shadow: 0 0 8px rgba(224,85,101,0.4);
+  box-shadow: 0 0 8px rgba(140,21,21,0.4);
 }
 .waveform-playhead::before {
   content: "";
@@ -1973,15 +1973,15 @@ body {
   transition: background 0.1s ease;
 }
 .waveform-segment:hover { background: rgba(255,255,255,0.08); border-color: var(--accent); }
-.waveform-segment:nth-child(odd) { background: rgba(224,85,101,0.06); }
-.waveform-segment:nth-child(odd):hover { background: rgba(224,85,101,0.12); }
+.waveform-segment:nth-child(odd) { background: rgba(140,21,21,0.06); }
+.waveform-segment:nth-child(odd):hover { background: rgba(140,21,21,0.12); }
 
 .waveform-segment-label {
   position: absolute;
   top: 3px; left: 3px;
   font-size: 0.55rem;
   color: #fff;
-  background: rgba(224,85,101,0.7);
+  background: rgba(140,21,21,0.7);
   padding: 1px 5px;
   border-radius: 3px;
   white-space: nowrap;
@@ -2059,7 +2059,7 @@ body {
   background: var(--surface-raised);
   border: 2px solid var(--accent);
   border-radius: var(--radius-sm);
-  box-shadow: 0 0 12px rgba(224,85,101,0.15);
+  box-shadow: 0 0 12px rgba(140,21,21,0.15);
 }
 
 .timestamp-input {
@@ -2135,7 +2135,7 @@ body {
 .waveform-selection {
   position: absolute;
   top: 0; bottom: 24px;
-  background: rgba(224,85,101,0.1);
+  background: rgba(140,21,21,0.1);
   border-left: 2px solid var(--accent);
   border-right: 2px solid var(--accent);
   display: none;
@@ -2155,7 +2155,7 @@ body {
   cursor: pointer;
 }
 .waveform-word:hover { background: rgba(255,255,255,0.06); }
-.waveform-word.selected { background: rgba(224,85,101,0.15); border-color: var(--accent); }
+.waveform-word.selected { background: rgba(140,21,21,0.15); border-color: var(--accent); }
 
 .waveform-word-label {
   position: absolute;
