@@ -50,6 +50,13 @@ export async function onRequestPost({ request, env }) {
       }, 400);
     }
 
+    // Validate access code (server-side gate)
+    const ACCESS_CODE = "sesquip";
+    const accessCode = (body.access_code || "").trim().toLowerCase();
+    if (accessCode !== ACCESS_CODE) {
+      return jsonResp({ error: "Invalid access code." }, 403);
+    }
+
     const email = (body.email || "").trim().toLowerCase();
     const password = body.password || "";
 

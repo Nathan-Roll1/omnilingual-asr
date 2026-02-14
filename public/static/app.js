@@ -126,6 +126,8 @@ const authEmail = document.getElementById("auth-email");
 const authPassword = document.getElementById("auth-password");
 const authConfirm = document.getElementById("auth-confirm");
 const authConfirmGroup = document.getElementById("auth-confirm-group");
+const authAccess = document.getElementById("auth-access");
+const authAccessGroup = document.getElementById("auth-access-group");
 const authError = document.getElementById("auth-error");
 const authSubmit = document.getElementById("auth-submit");
 const authSwitchText = document.getElementById("auth-switch-text");
@@ -149,6 +151,7 @@ function setAuthMode(mode) {
     if (authTitle) authTitle.textContent = "Create account";
     if (authSubtitle) authSubtitle.textContent = "Sign up to start transcribing";
     if (authConfirmGroup) authConfirmGroup.classList.remove("hidden");
+    if (authAccessGroup) authAccessGroup.classList.remove("hidden");
     if (authSubmit) authSubmit.textContent = "Create account";
     if (authSwitchText) authSwitchText.textContent = "Already have an account?";
     if (authSwitchBtn) authSwitchBtn.textContent = "Sign in";
@@ -156,6 +159,7 @@ function setAuthMode(mode) {
     if (authTitle) authTitle.textContent = "Sign in";
     if (authSubtitle) authSubtitle.textContent = "Sign in to access your transcripts";
     if (authConfirmGroup) authConfirmGroup.classList.add("hidden");
+    if (authAccessGroup) authAccessGroup.classList.add("hidden");
     if (authSubmit) authSubmit.textContent = "Sign in";
     if (authSwitchText) authSwitchText.textContent = "Don't have an account?";
     if (authSwitchBtn) authSwitchBtn.textContent = "Create one";
@@ -200,6 +204,11 @@ if (authForm) {
         showAuthError("Passwords do not match.");
         return;
       }
+      const accessCode = (authAccess?.value || "").trim();
+      if (!accessCode) {
+        showAuthError("Access code is required to create an account.");
+        return;
+      }
     }
 
     // ── Submit ──
@@ -207,7 +216,9 @@ if (authForm) {
 
     try {
       const endpoint = authMode === "register" ? "/api/auth/register" : "/api/auth/login";
-      const payload = JSON.stringify({ email, password });
+      const body = { email, password };
+      if (authMode === "register") body.access_code = (authAccess?.value || "").trim();
+      const payload = JSON.stringify(body);
       console.log("[auth]", authMode, endpoint, "email:", email, "pw-len:", password.length);
 
       const res = await _origFetch(endpoint, {
