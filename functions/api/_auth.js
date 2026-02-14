@@ -174,10 +174,55 @@ function getBearerToken(request) {
   return null;
 }
 
+// ── JWT secret with automatic fallback ──
+
+function getJwtSecret(env) {
+  if (env.JWT_SECRET) return env.JWT_SECRET;
+  // Derive a deterministic signing key from GEMINI_API_KEY so auth works
+  // even before the operator sets a dedicated JWT_SECRET.
+  if (env.GEMINI_API_KEY) return `omni-jwt-${env.GEMINI_API_KEY}`;
+  return null;
+}
+
+// ── Auto-migration: ensure users table + user_id column exist ──
+
+async function ensureSchema(db) {
+  try {
+    // Create users table
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL COLLATE NOCASE,
+        password_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `).run();
+
+    // Add user_id column to transcripts if missing
+    const { results: cols } = await db.prepare(
+      "PRAGMA table_info(transcripts)"
+    ).all();
+    const hasUserId = cols.some((c) => c.name === "user_id");
+    if (!hasUserId) {
+      await db.prepare(
+        "ALTER TABLE transcripts ADD COLUMN user_id TEXT REFERENCES users(id)"
+      ).run();
+      await db.prepare(
+        "CREATE INDEX IF NOT EXISTS idx_transcripts_user ON transcripts(user_id)"
+      ).run();
+    }
+  } catch (e) {
+    console.error("ensureSchema error:", e);
+    // Swallow — table may already exist, column may already exist
+  }
+}
+
 export {
   hashPassword,
   verifyPassword,
   createJWT,
   verifyJWT,
   getBearerToken,
+  getJwtSecret,
+  ensureSchema,
 };

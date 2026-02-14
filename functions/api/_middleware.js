@@ -1,4 +1,4 @@
-import { verifyJWT, getBearerToken } from "./_auth.js";
+import { verifyJWT, getBearerToken, getJwtSecret } from "./_auth.js";
 
 // Paths that don't require authentication
 const PUBLIC_PATHS = [
@@ -28,26 +28,34 @@ export async function onRequest(context) {
     });
   }
 
-  const jwtSecret = env.JWT_SECRET;
+  const jwtSecret = getJwtSecret(env);
   if (!jwtSecret) {
-    return new Response(JSON.stringify({ error: "Server misconfigured." }), {
+    return new Response(JSON.stringify({ error: "Server misconfigured — no signing key." }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });
   }
 
-  const payload = await verifyJWT(token, jwtSecret);
-  if (!payload || !payload.sub) {
+  try {
+    const payload = await verifyJWT(token, jwtSecret);
+    if (!payload || !payload.sub) {
+      return new Response(JSON.stringify({ error: "Invalid or expired token." }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Attach user identity to the request context
+    context.data = context.data || {};
+    context.data.userId = payload.sub;
+    context.data.email = payload.email;
+
+    return context.next();
+  } catch (err) {
+    console.error("Middleware auth error:", err);
     return new Response(JSON.stringify({ error: "Invalid or expired token." }), {
       status: 401,
       headers: { "Content-Type": "application/json" },
     });
   }
-
-  // Attach user identity to the request context
-  context.data = context.data || {};
-  context.data.userId = payload.sub;
-  context.data.email = payload.email;
-
-  return context.next();
 }
